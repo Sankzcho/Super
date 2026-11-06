@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>AnomicUpgrader Admin</title>
+<style>
+  body { background:#17181c; color:#ddd; font-family:Arial, sans-serif; margin:0; }
+  header { background:#101114; padding:10px 16px; display:flex; align-items:center; gap:16px; }
+  header b { color:#f5a623; font-size:20px; }
+  a { color:#6fb3ff; }
+  .panel { background:#1f2127; border:1px solid #2c2f36; border-radius:6px; padding:14px; margin:16px; max-width:900px; }
+  h3 { margin:0 0 10px 0; color:#fff; font-size:15px; }
+  input, select { background:#22242a; border:1px solid #3a3d45; color:#ddd; padding:6px; border-radius:4px; margin:2px 0; }
+  input[type=file] { border:0; }
+  button { background:#2f6fed; color:#fff; border:0; padding:6px 12px; border-radius:4px; cursor:pointer; }
+  button.red { background:#c0392b; }
+  button.green { background:#27ae60; }
+  table { border-collapse:collapse; width:100%; }
+  th, td { border:1px solid #2c2f36; padding:6px 8px; text-align:left; font-size:14px; }
+  th { background:#22242a; }
+  td img { width:40px; height:40px; object-fit:contain; background:#111; border-radius:4px; }
+  .msg { color:#f5a623; min-height:18px; font-size:13px; margin-top:6px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+</style>
+</head>
+<body>
+<header><b>ANOMICUPGRADER — ADMIN PANEL</b> <a href="/">&larr; back to game</a></header>
+
+<!-- ADMIN LOGIN -->
+<div class="panel" id="adminLogin">
+  <h3>Admin password</h3>
+  <input id="adminPass" type="password" placeholder="Password">
+  <button onclick="checkPass()">Enter</button>
+  <div class="msg" id="passMsg"></div>
+</div>
+
+<div id="adminMain" style="display:none">
+
+  <div class="panel">
+    <h3>Add new item</h3>
+    <div class="row">
+      <input id="newName" placeholder="Item name">
+      <input id="newValue" type="number" placeholder="Value" min="0">
+    </div>
+    <div class="row" style="margin-top:6px">
+      <span>Picture:</span>
+      <input type="file" id="newFile" accept="image/*">
+      <span>or URL:</span>
+      <input id="newUrl" placeholder="https://... (optional)" size="30">
+    </div>
+    <div style="margin-top:8px"><button class="green" onclick="addItem()">Add item</button></div>
+    <div class="msg" id="addMsg"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Items (edit value/name, change picture, delete)</h3>
+    <table id="itemsTable">
+      <tr><th>Pic</th><th>Name</th><th>Value</th><th>New picture</th><th></th></tr>
+    </table>
+    <div class="msg" id="editMsg"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Give item to a user</h3>
+    <div class="row">
+      <input id="giveUser" placeholder="Username">
+      <select id="giveItem"></select>
+      <input id="giveAmount" type="number" value="1" min="1" max="100" style="width:60px">
+      <button onclick="giveItem()">Give</button>
+    </div>
+    <div class="msg" id="giveMsg"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Give money to a user</h3>
+    <div class="row">
+      <input id="moneyUser" placeholder="Username">
+      <input id="moneyAmount" type="number" placeholder="Amount (negative removes)">
+      <button onclick="giveMoney()">Give</button>
+    </div>
+    <div class="msg" id="moneyMsg"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Deposit / Withdraw links</h3>
+    <div style="color:#888; font-size:13px; margin-bottom:8px">These links are shown to players when they press Deposit or Withdraw.</div>
+    <div class="row" style="margin-bottom:6px"><span style="width:110px">Deposit link:</span><input id="depLink" size="45" placeholder="https://..."></div>
+    <div class="row" style="margin-bottom:8px"><span style="width:110px">Withdraw link:</span><input id="witLink" size="45" placeholder="https://..."></div>
+    <button class="green" onclick="saveLinks()">Save links</button>
+    <div class="msg" id="linksMsg"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Deposit / Withdraw requests</h3>
+    <div style="color:#888; font-size:13px; margin-bottom:8px"><b>Deposit:</b> give them their items/money with the tools above, then press Done. <b>Withdraw:</b> their items are already taken from their inventory — hand them out, then press Done. Reject gives withdraw items back.</div>
+    <table id="reqTable"><tr><th>Type</th><th>User</th><th>Items / value</th><th>Note</th><th>When</th><th>Status</th><th></th></tr></table>
+    <div class="msg" id="reqMsg"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Affiliate payout requests</h3>
+    <div style="color:#888; font-size:13px; margin-bottom:8px">Pay the player using the "Give item to a user" tool above, then press <b>Mark paid</b>. <b>Reject</b> returns the money to their affiliate balance.</div>
+    <table id="payoutsTable"><tr><th>User</th><th>Amount</th><th>Requested</th><th>Status</th><th></th></tr></table>
+    <div class="msg" id="payoutMsg"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Users</h3>
+    <table id="usersTable"><tr><th>Username</th><th>Items</th><th>Total value</th><th>Money</th><th>W/L</th></tr></table>
+  </div>
+
+</div>
+
+<script>
+let pass = sessionStorage.getItem('adminPass') || '';
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmt(n){ return Number(n).toLocaleString('en-US'); }
+
+async function checkPass() {
+  const p = document.getElementById('adminPass').value;
+  const r = await fetch('/api/admin/check', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({password:p}) });
+  if (r.ok) { pass = p; sessionStorage.setItem('adminPass', p); showMain(); }
+  else document.getElementById('passMsg').textContent = 'Wrong password';
+}
+
+function showMain() {
+  document.getElementById('adminLogin').style.display = 'none';
+  document.getElementById('adminMain').style.display = '';
+  loadItems(); loadUsers(); loadPayouts(); loadLinks(); loadRequests();
+}
+
+async function loadLinks() {
+  const j = await (await fetch('/api/links')).json();
+  document.getElementById('depLink').value = j.deposit || '';
+  document.getElementById('witLink').value = j.withdraw || '';
+}
+
+async function saveLinks() {
+  const r = await fetch('/api/admin/links', { method:'POST',
+    headers:{'Content-Type':'application/json','x-admin-password':pass},
+    body: JSON.stringify({ deposit: document.getElementById('depLink').value.trim(), withdraw: document.getElementById('witLink').value.trim() }) });
+  const j = await r.json();
+  document.getElementById('linksMsg').textContent = r.ok ? 'Links saved — players will see them now.' : (j.error || 'Failed');
+}
+
+async function loadRequests() {
+  const r = await fetch('/api/admin/requests', { headers:{'x-admin-password':pass} });
+  if (!r.ok) return;
+  const list = await r.json();
+  const rows = list.map(q => `<tr>
+    <td>${q.type === 'deposit' ? '📥 Deposit' : '📤 Withdraw'}</td>
+    <td>${esc(q.username)}</td>
+    <td>${q.type === 'withdraw' ? (q.items.map(i => esc(i.name)).join(', ') + ' — <b style="color:#f5a623">' + fmt(q.value) + '</b>') : '—'}</td>
+    <td>${esc(q.note || '')}</td>
+    <td>${new Date(q.t).toLocaleString()}</td>
+    <td>${q.status === 'pending' ? '<b style="color:#f5a623">PENDING</b>' : (q.status === 'done' ? '<span style="color:#27ae60">done</span>' : '<span style="color:#c0392b">rejected</span>')}</td>
+    <td>${q.status === 'pending' ? `<button class="green" onclick="handleRequest(${q.id},'done')">Done</button> <button class="red" onclick="handleRequest(${q.id},'reject')">Reject</button>` : ''}</td>
+  </tr>`).join('');
+  document.getElementById('reqTable').innerHTML =
+    '<tr><th>Type</th><th>User</th><th>Items / value</th><th>Note</th><th>When</th><th>Status</th><th></th></tr>' +
+    (rows || '<tr><td colspan="7" style="color:#777">No requests yet.</td></tr>');
+}
+
+async function handleRequest(id, action) {
+  const r = await fetch('/api/admin/requests/' + id, { method:'POST',
+    headers:{'Content-Type':'application/json','x-admin-password':pass},
+    body: JSON.stringify({ action }) });
+  const j = await r.json();
+  document.getElementById('reqMsg').textContent = r.ok ? 'Marked as ' + j.status + '.' : (j.error || 'Failed');
+  loadRequests(); loadUsers();
+}
+
+async function loadPayouts() {
+  const r = await fetch('/api/admin/payouts', { headers:{'x-admin-password':pass} });
+  if (!r.ok) return;
+  const list = await r.json();
+  const rows = list.map(p => `<tr>
+    <td>${esc(p.username)}</td>
+    <td><b style="color:#f5a623">${fmt(p.amount)}</b></td>
+    <td>${new Date(p.t).toLocaleString()}</td>
+    <td>${p.status === 'pending' ? '<b style="color:#f5a623">PENDING</b>' : (p.status === 'paid' ? '<span style="color:#27ae60">paid</span>' : '<span style="color:#c0392b">rejected</span>')}</td>
+    <td>${p.status === 'pending' ? `<button class="green" onclick="handlePayout(${p.id},'paid')">Mark paid</button> <button class="red" onclick="handlePayout(${p.id},'reject')">Reject</button>` : ''}</td>
+  </tr>`).join('');
+  document.getElementById('payoutsTable').innerHTML =
+    '<tr><th>User</th><th>Amount</th><th>Requested</th><th>Status</th><th></th></tr>' +
+    (rows || '<tr><td colspan="5" style="color:#777">No payout requests yet.</td></tr>');
+}
+
+async function handlePayout(id, action) {
+  const r = await fetch('/api/admin/payouts/' + id, { method:'POST',
+    headers:{'Content-Type':'application/json','x-admin-password':pass},
+    body: JSON.stringify({ action }) });
+  const j = await r.json();
+  document.getElementById('payoutMsg').textContent = r.ok ? 'Marked as ' + j.status + '.' : (j.error || 'Failed');
+  loadPayouts();
+}
+
+async function loadItems() {
+  const items = await (await fetch('/api/items')).json();
+  const t = document.getElementById('itemsTable');
+  t.innerHTML = '<tr><th>Pic</th><th>Name</th><th>Value</th><th>New picture</th><th></th></tr>' +
+    items.map(it => `<tr>
+      <td>${it.image ? `<img src="${esc(it.image)}">` : '—'}</td>
+      <td><input id="name-${it.id}" value="${esc(it.name)}"></td>
+      <td><input id="val-${it.id}" type="number" value="${it.value}" min="0" style="width:90px"></td>
+      <td><input type="file" id="file-${it.id}" accept="image/*" style="width:180px"> <input id="url-${it.id}" placeholder="or URL" size="14"></td>
+      <td><button onclick="saveItem(${it.id})">Save</button> <button class="red" onclick="delItem(${it.id})">Delete</button></td>
+    </tr>`).join('');
+  const sel = document.getElementById('giveItem');
+  sel.innerHTML = items.map(it => `<option value="${it.id}">${esc(it.name)} (${fmt(it.value)})</option>`).join('') || '<option>No items yet</option>';
+}
+
+async function addItem() {
+  const fd = new FormData();
+  fd.append('name', document.getElementById('newName').value);
+  fd.append('value', document.getElementById('newValue').value);
+  const f = document.getElementById('newFile').files[0];
+  if (f) fd.append('imageFile', f);
+  const url = document.getElementById('newUrl').value.trim();
+  if (url) fd.append('imageUrl', url);
+  const r = await fetch('/api/admin/items', { method:'POST', headers:{'x-admin-password':pass}, body: fd });
+  const j = await r.json();
+  document.getElementById('addMsg').textContent = r.ok ? 'Added "' + j.name + '"' : (j.error || 'Failed');
+  if (r.ok) { document.getElementById('newName').value=''; document.getElementById('newValue').value=''; document.getElementById('newFile').value=''; document.getElementById('newUrl').value=''; loadItems(); }
+}
+
+async function saveItem(id) {
+  const fd = new FormData();
+  fd.append('name', document.getElementById('name-'+id).value);
+  fd.append('value', document.getElementById('val-'+id).value);
+  const f = document.getElementById('file-'+id).files[0];
+  if (f) fd.append('imageFile', f);
+  const url = document.getElementById('url-'+id).value.trim();
+  if (url) fd.append('imageUrl', url);
+  const r = await fetch('/api/admin/items/'+id, { method:'PUT', headers:{'x-admin-password':pass}, body: fd });
+  const j = await r.json();
+  document.getElementById('editMsg').textContent = r.ok ? 'Saved.' : (j.error || 'Failed');
+  if (r.ok) { loadItems(); loadUsers(); }
+}
+
+async function delItem(id) {
+  if (!confirm('Delete this item? It will be removed from all inventories too.')) return;
+  await fetch('/api/admin/items/'+id, { method:'DELETE', headers:{'x-admin-password':pass} });
+  loadItems(); loadUsers();
+}
+
+async function giveItem() {
+  const r = await fetch('/api/admin/give', { method:'POST',
+    headers:{'Content-Type':'application/json','x-admin-password':pass},
+    body: JSON.stringify({ username: document.getElementById('giveUser').value.trim(), itemId: document.getElementById('giveItem').value, amount: document.getElementById('giveAmount').value }) });
+  const j = await r.json();
+  document.getElementById('giveMsg').textContent = r.ok ? 'Given x' + j.given : (j.error || 'Failed');
+  if (r.ok) loadUsers();
+}
+
+async function loadUsers() {
+  const r = await fetch('/api/admin/users', { headers:{'x-admin-password':pass} });
+  if (!r.ok) return;
+  const users = await r.json();
+  document.getElementById('usersTable').innerHTML = '<tr><th>Username</th><th>Items</th><th>Total value</th><th>Money</th><th>W/L</th></tr>' +
+    users.map(u => `<tr><td>${esc(u.username)}</td><td>${u.items}</td><td>${fmt(u.totalValue)}</td><td style="color:#f5a623">${fmt(u.money || 0)}</td><td>${u.wins}/${u.losses}</td></tr>`).join('');
+}
+
+async function giveMoney() {
+  const r = await fetch('/api/admin/money', { method:'POST',
+    headers:{'Content-Type':'application/json','x-admin-password':pass},
+    body: JSON.stringify({ username: document.getElementById('moneyUser').value.trim(), amount: document.getElementById('moneyAmount').value }) });
+  const j = await r.json();
+  document.getElementById('moneyMsg').textContent = r.ok ? 'Done — they now have ' + fmt(j.money) : (j.error || 'Failed');
+  if (r.ok) loadUsers();
+}
+
+if (pass) { checkPassSilent(); }
+async function checkPassSilent() {
+  const r = await fetch('/api/admin/check', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({password:pass}) });
+  if (r.ok) showMain(); else sessionStorage.removeItem('adminPass');
+}
+</script>
+</body>
+</html>

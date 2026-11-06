@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnomicUpgrader</title>
+<style>
+  * { box-sizing:border-box; }
+  body { background-color:#0e0f13;
+         background-image:url('/bgcars.png'), radial-gradient(1100px 520px at 50% -180px, #1b1e27, #0e0f13);
+         background-repeat:repeat, no-repeat; background-size:auto, 100% 100%;
+         color:#d6d8de; font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; margin:0;
+         line-height:1.5; -webkit-font-smoothing:antialiased; }
+  a { color:#6fb3ff; }
+  button { background:linear-gradient(180deg, #3d7bf0, #2a63d8); color:#fff; border:0; padding:8px 15px;
+           border-radius:7px; cursor:pointer; font-size:14px; font-weight:600;
+           transition:filter .15s, transform .08s, box-shadow .15s; }
+  button:hover { filter:brightness(1.12); transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.35); }
+  button:active { transform:translateY(0); }
+  button:disabled { opacity:.45; cursor:not-allowed; transform:none; box-shadow:none; }
+  button.gray { background:linear-gradient(180deg, #41454f, #343841); }
+  button.red { background:linear-gradient(180deg, #d4493a, #b33226); }
+  button.gold { background:linear-gradient(180deg, #ffd166, #f0a41d); color:#1a1405; font-weight:bold; }
+  button.green { background:linear-gradient(180deg, #31c472, #219a53); }
+  input { background:#1b1d23; border:1px solid #33363e; color:#ddd; padding:8px 10px; border-radius:7px; outline:none; transition:border-color .15s; }
+  input:focus { border-color:#f5a623; }
+  .stat { background:#1d1f26; border:1px solid #262933; border-radius:7px; padding:6px 12px; font-size:13px;
+          display:inline-flex; align-items:center; gap:5px; }
+  .stat span { color:#4caf50; font-weight:bold; }
+  ::-webkit-scrollbar { width:8px; height:8px; }
+  ::-webkit-scrollbar-track { background:#121318; }
+  ::-webkit-scrollbar-thumb { background:#33363e; border-radius:5px; }
+  ::-webkit-scrollbar-thumb:hover { background:#6b5527; }
+  .msg { color:#f5a623; min-height:18px; font-size:13px; }
+  .plink { color:#6fb3ff; cursor:pointer; text-decoration:underline; }
+  .lvl { background:#f5a623; color:#111; font-weight:bold; font-size:10px; border-radius:3px; padding:1px 4px; vertical-align:middle; }
+  img.mini { width:38px; height:38px; object-fit:contain; background:transparent; border-radius:4px; vertical-align:middle; margin-right:2px; }
+  .done-win { color:#4caf50; font-weight:bold; }
+
+  /* ---- layout: live wins feed on the left ---- */
+  #layout { display:flex; min-height:100vh; }
+  #winsPanel { width:280px; min-width:280px; background:#0b0c0f; border-right:1px solid #262933;
+               display:flex; flex-direction:column; height:100vh; position:sticky; top:0; }
+  #sideTabs { display:flex; border-bottom:1px solid #262933; flex:none; }
+  .stab { flex:1; background:none; border:0; border-radius:0; color:#8a8f9a; font-size:12px; font-weight:bold;
+          letter-spacing:1px; padding:14px 0; cursor:pointer; border-bottom:2px solid transparent; }
+  .stab:hover { color:#f5a623; background:#14161b; transform:none; box-shadow:none; filter:none; }
+  .stab.active { color:#f5a623; border-bottom-color:#f5a623; background:rgba(245,166,35,.05); }
+  #chatBox { flex:1; display:flex; flex-direction:column; min-height:0; }
+  #chatFeed { flex:1; overflow-y:auto; padding:10px 12px; }
+  .cmsg { margin-bottom:9px; font-size:14.5px; line-height:1.5; overflow-wrap:break-word; animation:winIn .25s ease; }
+  .cmsg .cav { width:28px; height:28px; border-radius:50%; vertical-align:-9px; margin-right:4px; background:#101114; }
+  .cmsg .cu { font-weight:bold; cursor:pointer; color:#d6d8de; }
+  .cmsg .cu:hover { color:#f5a623; }
+  .cmsg .ct { color:#9aa0ac; }
+  .cmsg.sys { color:#f5a623; font-size:12px; background:rgba(245,166,35,.07);
+              border:1px solid rgba(245,166,35,.22); border-radius:7px; padding:6px 9px; }
+  #chatForm { display:flex; gap:6px; padding:10px; border-top:1px solid #262933; flex:none; }
+  #chatForm input { flex:1; min-width:0; font-size:12.5px; }
+  #chatForm button { padding:8px 13px; flex:none; }
+  #winsFeed { flex:1; overflow-y:auto; padding:8px 10px; }
+  .wrow { display:flex; gap:9px; align-items:center; background:linear-gradient(180deg, #1a1c21, #16181d);
+          border:1px solid #262933; border-radius:8px; padding:8px; margin-bottom:8px; font-size:12px;
+          transition:border-color .15s; animation:winIn .35s ease; }
+  .wrow:hover { border-color:rgba(245,166,35,.45); }
+  @keyframes winIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
+  .wrow img { width:42px; height:42px; object-fit:contain; background:transparent; border-radius:5px; flex:none; }
+  .wrow .noimg42 { width:42px; height:42px; background:#101114; border-radius:5px; color:#555; font-size:9px; display:flex; align-items:center; justify-content:center; flex:none; }
+  .wrow .wn { min-width:0; }
+  .wrow .wn b { display:block; white-space:normal; overflow-wrap:break-word; word-break:break-word; line-height:1.25; }
+  #rightSide { flex:1; min-width:0; }
+
+  header { background:rgba(11,12,15,.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+           padding:12px 20px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+           border-bottom:1px solid rgba(245,166,35,.30); box-shadow:0 2px 12px rgba(0,0,0,.35); position:sticky; top:0; z-index:5; }
+  header b.logo { font-size:20px; letter-spacing:.5px; margin-right:8px; }
+  header b.logo .a { color:#f5a623; text-shadow:0 0 18px rgba(245,166,35,.35); } header b.logo .d { color:#fff; }
+  header .spacer { flex:1; }
+  header a { color:#9aa0ac; font-size:13px; text-decoration:none; padding:8px 11px; border-radius:7px;
+             transition:color .15s, background .15s; }
+  header a:hover { color:#f5a623; background:rgba(245,166,35,.08); }
+
+  .container { max-width:1400px; margin:0 auto; padding:18px 24px; }
+  .panel { background:linear-gradient(180deg, #171a21, #14161c); border:1px solid #262933; border-radius:14px;
+           padding:18px; margin-bottom:18px; box-shadow:0 8px 24px rgba(0,0,0,.3); }
+  h3 { margin:0 0 14px 0; font-size:13px; color:#eef0f4; letter-spacing:1.2px; text-transform:uppercase;
+       border-left:3px solid #f5a623; padding-left:10px; line-height:1.4; }
+
+  .invgrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(112px, 1fr)); gap:10px; }
+  .invgrid.compact { grid-template-columns:repeat(auto-fill, minmax(88px, 1fr)); gap:8px; }
+  .invgrid.compact .card { padding:8px 6px; }
+  .invgrid.compact .card img, .invgrid.compact .card .noimg { width:42px; height:42px; }
+  #myInv.compact .card img, #myInv.compact .card .noimg { width:58px; height:58px; }
+  .invgrid.compact .card .nm { font-size:11px; margin-top:5px; }
+  .invgrid.compact .card .vl { font-size:12px; }
+  .pager { display:flex; align-items:center; justify-content:center; gap:10px; margin-top:10px; }
+  .pager button { background:#1c1f26; border:1px solid #262933; color:#c9ccd4; border-radius:8px;
+                  padding:4px 12px; cursor:pointer; font-weight:bold; font-size:12px; }
+  .pager button:hover:not(:disabled) { border-color:rgba(245,166,35,.55); color:#f5a623; }
+  .pager button:disabled { opacity:.35; cursor:default; }
+  .pager .pginfo { font-size:12px; color:#9aa0ab; }
+  /* market cards: equal height, BUY buttons all on one line at the bottom */
+  #mkGrid .card { display:flex; flex-direction:column; }
+  #mkGrid .card img, #mkGrid .card .noimg { align-self:center; }
+  #mkGrid .card .nm { flex:1; }
+  #mkGrid .card button { margin-top:auto !important; }
+
+  /* ---- win / lose effects ---- */
+  @keyframes loseShake { 0%,100%{transform:translateX(0)} 15%{transform:translateX(-9px)} 30%{transform:translateX(8px)}
+                         45%{transform:translateX(-6px)} 60%{transform:translateX(4px)} 75%{transform:translateX(-2px)} }
+  .shakeFx { animation:loseShake .55s ease; }
+  .fxlayer { position:absolute; inset:0; overflow:visible; pointer-events:none; z-index:5; }
+  .conf { position:absolute; left:0; top:0; width:8px; height:12px; border-radius:2px; will-change:transform; }
+  @keyframes winPop { 0%{transform:translate(-50%,-50%) scale(.3); opacity:0}
+                      22%{transform:translate(-50%,-50%) scale(1.3); opacity:1}
+                      50%{transform:translate(-50%,-50%) scale(1)}
+                      100%{transform:translate(-50%,-50%) scale(1.05); opacity:0} }
+  .winPop { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); font-size:36px; font-weight:900;
+            color:#4caf50; text-shadow:0 0 20px rgba(76,175,80,.85), 0 2px 6px rgba(0,0,0,.6);
+            animation:winPop 1.6s ease forwards; pointer-events:none; z-index:6; letter-spacing:2px; }
+  .card { background:linear-gradient(180deg, #191b20, #15171c); border:1px solid #262933; border-radius:10px;
+          padding:12px 10px; text-align:center; transition:border-color .15s, transform .12s, box-shadow .15s; }
+  .card img { width:56px; height:56px; object-fit:contain; background:transparent; border-radius:8px; }
+  .card .noimg { width:56px; height:56px; background:#101114; border-radius:8px; display:inline-flex; align-items:center; justify-content:center; color:#555; font-size:10px; }
+  .card .nm { font-size:12px; margin-top:7px; color:#c9ccd4; white-space:normal; overflow-wrap:break-word; word-break:break-word; line-height:1.3; }
+  .card .vl { color:#4caf50; font-weight:bold; font-size:13px; margin-top:2px; }
+  .card.selectable { cursor:pointer; }
+  .card.selectable:hover { border-color:rgba(245,166,35,.55); transform:translateY(-2px); box-shadow:0 6px 14px rgba(0,0,0,.35); }
+  .card.sel { border-color:#f5a623; background:linear-gradient(180deg, #2b2415, #221c10); box-shadow:0 0 12px rgba(245,166,35,.25); }
+
+  /* ---- upgrader ---- */
+  .upGrid { display:flex; gap:16px; align-items:stretch; }
+  .upPanel { border-color:#262933; }
+  .slotCap { color:#f5a623; font-size:11px; font-weight:bold; letter-spacing:2.5px; height:16px; line-height:16px;
+             margin-bottom:8px; text-align:center; }
+  .upSlot { flex:1; min-width:0; background:linear-gradient(180deg, #14161c, #101217); border:1px solid #262933;
+            border-radius:16px; padding:14px; display:flex; flex-direction:column; align-items:center;
+            justify-content:center; text-align:center; min-height:345px; box-shadow:inset 0 2px 16px rgba(0,0,0,.45); }
+  .upSlot .ph { color:#666; font-size:13px; }
+  .upCenter { width:360px; min-width:360px; display:flex; flex-direction:column; align-items:center; }
+  #upPct { font-size:30px; font-weight:800; }
+  #upPointer { transform-box:view-box; transform-origin:100px 100px; will-change:transform; }
+  #quickRow { display:flex; gap:6px; justify-content:center; margin-top:8px; height:27px; flex-wrap:nowrap; }
+  .qbtn { background:#1b1d22; color:#ddd; border:1px solid #33363e; border-radius:6px; padding:4px 10px;
+          font-weight:bold; font-size:11px; cursor:pointer; white-space:nowrap;
+          transition:background .15s, border-color .15s; }
+  .qbtn:hover { background:#24262d; border-color:#f5a623; color:#f5a623; }
+  .qbtn.qr { border-color:#7a3a3a; } .qbtn.qr:hover { border-color:#e74c3c; }
+  .qbtn.qy { border-color:#8f7e2a; } .qbtn.qy:hover { border-color:#ffd166; }
+  .qbtn.qg { border-color:#3a6e3a; } .qbtn.qg:hover { border-color:#4caf50; }
+  #quickSet { text-align:center; color:#aaa; font-size:13px; margin-top:8px; }
+  #quickSet input { background:#101114; border:1px solid #33363e; color:#fff; border-radius:6px; padding:5px 8px; width:70px; }
+  #upBtn { width:100%; padding:15px; font-size:18px; font-weight:bold; letter-spacing:2px; margin-top:10px;
+           color:#1a1405; border:0; border-radius:10px; cursor:pointer;
+           background:linear-gradient(180deg, #ffd166 0%, #f5a623 55%, #e08e00 100%);
+           box-shadow:0 4px 14px rgba(245,166,35,.35), inset 0 1px 0 rgba(255,255,255,.45);
+           text-shadow:0 1px 0 rgba(255,255,255,.3);
+           transition:transform .08s, box-shadow .15s, filter .15s; }
+  #upBtn:hover:not(:disabled) { filter:brightness(1.1); transform:translateY(-1px);
+           box-shadow:0 6px 20px rgba(245,166,35,.55), inset 0 1px 0 rgba(255,255,255,.45); }
+  #upBtn:active:not(:disabled) { transform:translateY(1px); box-shadow:0 2px 8px rgba(245,166,35,.3); }
+  #upBtn:disabled { background:#3a3d45; color:#777; box-shadow:none; text-shadow:none; opacity:1; }
+  #upStatus { min-height:24px; font-size:14px; text-align:center; margin-top:8px; }
+  .hint { color:#777; font-size:12px; font-weight:normal; text-transform:none; letter-spacing:0; }
+  #mainNav { display:flex; gap:4px; }
+  .navtab { background:none; border:0; color:#8a8f9a; font-weight:bold; font-size:13px; letter-spacing:1px;
+            padding:9px 13px; border-radius:8px; cursor:pointer; }
+  .navtab:hover { color:#f5a623; background:#1b1e24; transform:none; box-shadow:none; filter:none; }
+  .navtab.active { color:#f5a623; background:rgba(245,166,35,.12); }
+  #podium { display:flex; align-items:flex-end; justify-content:center; gap:14px; margin:8px 0 24px; flex-wrap:wrap; }
+  .pod { width:180px; text-align:center; cursor:pointer; }
+  .pod .pmedal { font-size:36px; line-height:1; margin-bottom:6px; }
+  .pod .pname { font-weight:bold; color:#fff; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pod:hover .pname { color:#f5a623; }
+  .pod .pval { color:#f5a623; font-size:12.5px; font-weight:bold; margin-bottom:8px; }
+  .pod .pbase { border-radius:10px 10px 0 0; font-size:32px; font-weight:bold;
+                display:flex; align-items:center; justify-content:center; box-shadow:0 -4px 18px rgba(0,0,0,.3) inset; }
+  .pod.first .pbase { height:112px; background:linear-gradient(180deg, #ffd166, #a06c08); color:#1a1405; }
+  .pod.second .pbase { height:82px; background:linear-gradient(180deg, #aab2c0, #596070); color:#14161c; }
+  .pod.third .pbase { height:62px; background:linear-gradient(180deg, #cd7f32, #74461a); color:#1a0f05; }
+  #lbCard { display:none; position:fixed; z-index:50; width:250px; background:#1b1e26; border:1px solid #3a3d45;
+            border-radius:12px; padding:12px 14px; box-shadow:0 14px 36px rgba(0,0,0,.55); pointer-events:none; font-size:13px; }
+  .lbt.active { border-color:#f5a623; color:#f5a623; }
+  .lbrow { display:flex; align-items:center; gap:10px; padding:9px 10px; border-bottom:1px solid #262933;
+           font-size:13px; cursor:pointer; border-radius:7px; }
+  .lbrow:hover { background:#191c23; box-shadow:inset 3px 0 0 #f5a623; }
+  .lbrow:last-child { border-bottom:0; }
+  .lbrow .rank { width:30px; color:#888; font-weight:bold; flex:none; }
+  .lbrow .rank.r1 { color:#ffd166; } .lbrow .rank.r2 { color:#c0c6d4; } .lbrow .rank.r3 { color:#cd7f32; }
+  .lbrow .lbname { font-weight:bold; cursor:pointer; }
+  .lbrow .lbname:hover { color:#f5a623; }
+  .dwstep { display:flex; gap:14px; align-items:flex-start; background:#14161c; border:1px solid #262933;
+            border-radius:12px; padding:14px 16px; margin-bottom:12px; }
+  .dwnum { width:28px; height:28px; border-radius:50%; background:rgba(245,166,35,.14); color:#f5a623;
+           font-weight:bold; font-size:14px; display:flex; align-items:center; justify-content:center; flex:none; }
+  .dwlink { display:inline-block; background:linear-gradient(180deg, #31c472, #219a53); color:#fff; font-weight:600;
+            font-size:13px; padding:9px 16px; border-radius:8px; text-decoration:none; margin-top:8px; }
+  .dwlink:hover { filter:brightness(1.12); }
+  .pulsing { animation:pulse 0.7s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.45; } }
+  .wonGlow { filter:drop-shadow(0 0 14px rgba(76,175,80,.8)); }
+  .lostGlow { filter:drop-shadow(0 0 14px rgba(231,76,60,.8)); }
+  .hrow { border-bottom:1px solid #26282e; padding:7px 0; font-size:13px; line-height:1.7; }
+
+  #loadScreen { position:fixed; inset:0; background:#17181c; z-index:100;
+                display:flex; align-items:center; justify-content:center; flex-direction:column; gap:16px; }
+  @keyframes ldspin { to { transform:rotate(360deg); } }
+  .spinner { width:36px; height:36px; border:4px solid #262933; border-top-color:#f5a623; border-radius:50%; animation:ldspin .8s linear infinite; }
+
+  .pgwrap .panel > h3 { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+  #profileOverlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:10; }
+  .popup { display:none; position:fixed; z-index:11; top:5%; left:50%; transform:translateX(-50%);
+           width:min(680px, 94vw); max-height:88vh; overflow-y:auto;
+           background:linear-gradient(180deg, #1b1e26, #171a21); border:1px solid #3a3d45; border-radius:14px;
+           padding:18px; box-shadow:0 18px 50px rgba(0,0,0,.6); }
+  .popup > h3 { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+  .popup h3 .x { cursor:pointer; color:#888; font-size:12px; }
+  .popup h3 .x:hover { color:#fff; }
+  .pgwrap h3 .x { cursor:pointer; color:#888; font-size:12px; }
+  .pgwrap h3 .x:hover { color:#fff; }
+  .pstats { display:flex; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+  .xpbar { background:#17181c; border:1px solid #262933; border-radius:4px; height:16px; overflow:hidden; margin-bottom:12px; }
+  .xpbar > div { background:#f5a623; height:100%; }
+
+  @media (max-width: 900px) { .upGrid { flex-direction:column; } .upCenter { width:100%; min-width:0; } }
+  @media (max-width: 860px) {
+    #layout { flex-direction:column; }
+    #winsPanel { width:100%; min-width:0; height:300px; position:static; border-right:0; border-bottom:1px solid #262933; }
+  }
+</style>
+</head>
+<body>
+
+<!-- LOADING SCREEN: covers the whole page so nothing can be clicked until the site is ready -->
+<div id="loadScreen">
+  <b class="logo" style="font-size:26px"><span style="color:#f5a623">ANOMIC</span><span style="color:#fff">UPGRADER</span></b>
+  <div class="spinner"></div>
+  <div style="color:#888">Loading...</div>
+</div>
+
+<div id="layout">
+
+  <!-- CHAT + LIVE WINS (left side) -->
+  <aside id="winsPanel">
+    <div id="sideTabs">
+      <button class="stab active" id="tabChat" onclick="sideTab('chat')">💬 CHAT</button>
+      <button class="stab" id="tabWins" onclick="sideTab('wins')">🏆 LIVE WINS</button>
+    </div>
+    <div id="chatBox">
+      <div id="chatFeed"><div style="color:#777; font-size:12px">No messages yet — say hi!</div></div>
+      <form id="chatForm" onsubmit="sendChat(); return false">
+        <input id="chatInp" maxlength="200" placeholder="Type a message..." autocomplete="off">
+        <button type="submit" id="chatSendBtn" class="gold">➤</button>
+      </form>
+      <div class="msg" id="chatMsg" style="padding:0 10px 8px; min-height:0"></div>
+    </div>
+    <div id="winsFeed" style="display:none"><div style="color:#777; font-size:12px">No wins yet.</div></div>
+  </aside>
+
+  <div id="rightSide">
+    <header>
+      <b class="logo"><span class="a">ANOMIC</span><span class="d">UPGRADER</span></b>
+      <nav id="mainNav">
+        <button class="navtab active" id="navUp" onclick="showPage('main')">⬆ UPGRADER</button>
+        <button class="navtab" id="navLb" onclick="showPage('lb')">🏆 LEADERBOARD</button>
+      </nav>
+      <span id="authArea">
+        <button class="gold" onclick="openAuth('register')">Register</button>
+        <button onclick="openAuth('login')">Login</button>
+      </span>
+      <span id="userArea" style="display:none">
+        <span class="stat"><span class="lvl" id="myLvl">1</span> <span class="plink" id="whoami" onclick="openProfile(me.username)"></span></span>
+        <span class="stat">💰 Money: <span id="myMoney" style="color:#f5a623">0</span></span>
+        <span class="stat">Inventory: <span id="totalVal">0</span></span>
+      </span>
+      <button class="gold" id="verifyBtn" style="display:none" onclick="openVerify()">🔗 VERIFY ROBLOX</button>
+      <span class="spacer"></span>
+      <button class="green" onclick="openDw('deposit')">📥 Deposit</button>
+      <button class="gray" onclick="openDw('withdraw')">📤 Withdraw</button>
+      <button class="gray" onclick="openMarket()">🛒 Market</button>
+      <span id="profBtnWrap" style="display:none"><button class="gray" onclick="openProfile(me.username)">Profile</button></span>
+      <a href="/admin.html" id="adminLink" style="display:none">Admin panel</a>
+      <button class="gray" id="logoutBtn" style="display:none" onclick="logout()">Logout</button>
+    </header>
+    <div class="container" style="padding:10px 24px 0"><div class="msg" id="topMsg"></div></div>
+
+    <div class="container" id="main">
+      <div id="verifyBanner" style="display:none">
+        <div style="background:linear-gradient(90deg,#2b2415,#1d180c); border:1px solid #f5a623; border-radius:10px;
+                    padding:12px 16px; margin-bottom:16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap">
+          <span style="font-size:22px">🔗</span>
+          <b style="color:#f5a623">Verify your Roblox account to play!</b>
+          <span style="color:#9aa0ab; font-size:13px">Upgrades are locked until you link your Roblox account — it takes 1 minute.</span>
+          <button class="gold" onclick="openVerify()">VERIFY NOW</button>
+        </div>
+      </div>
+
+      <!-- UPGRADER -->
+      <div class="panel upPanel">
+        <h3 style="display:flex; justify-content:space-between; align-items:center">⬆ ANOMICUPGRADER
+          <span class="hint">Total upgrades: <span id="totUp" style="color:#f5a623; font-weight:bold">0</span></span>
+        </h3>
+        <div class="upGrid">
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column">
+            <div class="slotCap">YOUR ITEMS</div>
+            <div class="upSlot" id="upLeft">
+              <div class="ph">Select items (and/or money) below to use</div>
+            </div>
+            <div style="height:35px"></div><!-- same height as the quick buttons row, keeps both boxes aligned -->
+          </div>
+          <div class="upCenter">
+            <div style="height:24px"></div><!-- same height as the slot captions, keeps the wheel aligned with the slots -->
+            <svg viewBox="0 0 200 200" width="280" id="upCircle">
+              <circle cx="100" cy="100" r="84" fill="none" stroke="#262933" stroke-width="14"/>
+              <circle id="upArc" cx="100" cy="100" r="84" fill="none" stroke="#f5a623" stroke-width="14"
+                      stroke-linecap="butt" stroke-dasharray="0 528" transform="rotate(90 100 100)"/>
+              <g id="upPointer">
+                <defs>
+                  <linearGradient id="ptrGrad" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stop-color="#fff176"/>
+                    <stop offset="0.5" stop-color="#ffc400"/>
+                    <stop offset="1" stop-color="#f29d00"/>
+                  </linearGradient>
+                </defs>
+                <polygon points="100,177 93,196 100,191.5 107,196" fill="url(#ptrGrad)" stroke="#5b4300" stroke-width="1.2" stroke-linejoin="round"/>
+              </g>
+              <text id="upPct" x="100" y="107" text-anchor="middle" fill="#fff" font-size="27" font-weight="bold">0%</text>
+            </svg>
+            <button id="upBtn" onclick="doUpgrade()" disabled>⬆ UPGRADE</button>
+            <div id="upStatus"></div>
+          </div>
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column">
+            <div class="slotCap">TARGET ITEM</div>
+            <div class="upSlot" id="upRight">
+              <div class="ph">Select the item you want to upgrade into below</div>
+            </div>
+            <div id="quickRow">
+              <button class="qbtn" onclick="quickMult(2)">x2</button>
+              <button class="qbtn" onclick="quickMult(4)">x4</button>
+              <button class="qbtn" onclick="quickMult(8)">x8</button>
+              <button class="qbtn qr" onclick="quickPct(35)">35%</button>
+              <button class="qbtn qy" onclick="quickPct(55)">55%</button>
+              <button class="qbtn qg" onclick="quickPct(75)">75%</button>
+              <button class="qbtn" onclick="toggleQuickSet()" title="Custom chance">⚙</button>
+            </div>
+            <div id="quickSet" style="display:none">
+              Custom chance: <input type="number" id="quickPctInp" min="1" max="80" value="50"> %
+              <button class="qbtn" onclick="applyQuickPct()">Apply</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:18px; flex-wrap:wrap">
+        <div class="panel" style="flex:1; min-width:300px">
+          <h3>My items <span class="hint">— click to add them to the upgrade (max 15)</span></h3>
+          <div style="margin-bottom:12px; display:flex; align-items:center; gap:8px">💰 Also use money:
+            <input type="number" id="upMoneyInp" min="0" value="0" style="width:120px" oninput="updateUpgrader()">
+          </div>
+          <div class="invgrid compact" id="myInv"><div style="color:#777; grid-column:1/-1">Log in to see your items.</div></div>
+          <div class="pager" id="myInvPager" style="display:none"></div>
+        </div>
+        <div class="panel" style="flex:1; min-width:300px">
+          <h3>Upgrade into <span class="hint">— click one item as your target</span></h3>
+          <div class="invgrid compact" id="targetInv"><div style="color:#777; grid-column:1/-1">Loading...</div></div>
+          <div class="pager" id="targetPager" style="display:none"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- LEADERBOARD PAGE -->
+    <div class="container" id="lbPage" style="display:none">
+      <div class="panel">
+        <h3>🏆 Leaderboard <span class="hint">— top 10 by total wagered</span></h3>
+        <div id="podium"></div>
+        <div id="lbList"></div>
+      </div>
+    </div>
+
+    <!-- REGISTER / LOGIN PAGE -->
+    <div class="container pgwrap" id="authPage" style="display:none">
+      <div class="panel" style="max-width:420px; margin:26px auto">
+          <h3><span id="authTitle">Register</span> <span class="x" onclick="closeAllPopups()">&#10005; close</span></h3>
+          <form onsubmit="doAuth(); return false">
+            <input id="username" placeholder="Username" autocomplete="username" style="width:100%; margin-bottom:10px">
+            <input id="password" type="password" placeholder="Password" autocomplete="current-password" style="width:100%; margin-bottom:14px">
+            <button type="submit" class="gold" id="authSubmit" style="width:100%">REGISTER</button>
+          </form>
+          <div class="msg" id="authMsg" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <!-- MARKETPLACE PAGE -->
+    <div class="container pgwrap" id="marketPage" style="display:none">
+      <div class="panel">
+          <h3><span>🛒 Marketplace</span>
+              <span class="stat" style="font-weight:normal">💰 Your money: <span id="mkMoney" style="color:#f5a623">0</span></span>
+              <span class="x" onclick="closeAllPopups()">&#10005; close</span></h3>
+          <div style="color:#888; font-size:13px; margin-bottom:10px">Buy items with your money — they go straight into your inventory.</div>
+          <div class="invgrid" id="mkGrid"></div>
+          <div class="msg" id="mkMsg" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <!-- DEPOSIT / WITHDRAW PAGE -->
+    <div class="container pgwrap" id="dwPage" style="display:none">
+      <div class="panel" style="max-width:780px; margin:0 auto">
+          <h3><span id="dwTitle">Deposit</span> <span class="x" onclick="closeAllPopups()">&#10005; close</span></h3>
+          <div class="dwstep">
+            <div class="dwnum">1</div>
+            <div id="dwLinkRow" style="flex:1; min-width:0"></div>
+          </div>
+          <div class="dwstep">
+            <div class="dwnum">2</div>
+            <div style="flex:1; min-width:0">
+              <div id="dwInvWrap" style="display:none; margin-bottom:12px">
+                <div style="color:#888; font-size:13px; margin-bottom:8px">Click the items you want to withdraw:</div>
+                <div class="invgrid" id="dwInv"></div>
+                <div style="margin:10px 0 0 0">Selected value: <b id="dwTotal" style="color:#4caf50">0</b></div>
+              </div>
+              <div id="dwNoteLbl" style="color:#888; font-size:13px; margin-bottom:8px"></div>
+              <input id="dwNote" maxlength="200" placeholder="Write your note here..." style="width:100%; margin-bottom:12px">
+              <button class="gold" id="dwSubmit" onclick="submitDw()">SEND REQUEST</button>
+              <div class="msg" id="dwMsg" style="margin-top:8px"></div>
+            </div>
+          </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+
+<!-- PROFILE POPUP (floats over whatever page you are on) -->
+<div id="profileOverlay" onclick="closeProfile()"></div>
+<div id="profilePopup" class="popup">
+    <h3><span id="profileTitle">Profile</span> <span class="x" onclick="closeProfile()">&#10005; close</span></h3>
+    <div class="pstats">
+      <span class="stat"><span class="lvl" id="pLevel">1</span> Level</span>
+      <span class="stat">Money: <span id="pMoney">0</span></span>
+      <span class="stat">Wins: <span id="pWins">0</span></span>
+      <span class="stat" style="color:#ddd">Losses: <span id="pLosses" style="color:#e74c3c">0</span></span>
+      <span class="stat" id="pWinrate">Winrate: <span>0%</span></span>
+      <span class="stat">Upgrades: <span id="pGames">0</span></span>
+      <span class="stat">Wagered: <span id="pWagered">0</span></span>
+    </div>
+    <div style="color:#888; font-size:12px; margin-bottom:4px" id="xpLabel"></div>
+    <div class="xpbar"><div id="xpFill" style="width:0%"></div></div>
+    <div id="tipRow" style="display:none; gap:8px; align-items:center; margin-bottom:12px">
+      <span style="font-size:13px; color:#888; flex:none">💸 Tip money:</span>
+      <input type="number" id="tipAmt" min="10000" placeholder="Min 10,000" style="width:110px">
+      <button class="gold" onclick="sendTip()">SEND TIP</button>
+      <span class="msg" id="tipMsg" style="margin:0; min-height:0"></span>
+    </div>
+    <div id="rbxLinked" style="display:none; align-items:center; gap:8px; margin-top:10px">
+      <img id="rbxAvatar" src="" style="width:34px; height:34px; border-radius:50%; background:#101114">
+      <span style="font-size:13px; color:#888">Roblox:</span>
+      <b id="rbxName" style="color:#f5a623"></b>
+      <button class="gray" id="rbxUnlinkBtn" style="display:none; font-size:11px; padding:4px 8px" onclick="rbxUnlink()">UNLINK</button>
+    </div>
+    <div id="rbxLinkBox" style="display:none; margin-top:10px">
+      <button class="gray" id="rbxStartBtn" style="font-size:12px" onclick="document.getElementById('rbxForm').style.display=''; this.style.display='none'">🔗 Link your Roblox account</button>
+      <div id="rbxForm" style="display:none; background:#17181c; border:1px solid #262933; border-radius:10px; padding:12px; margin-top:8px">
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+          <span style="font-size:13px; color:#888">Roblox username:</span>
+          <input id="rbxNameInp" maxlength="30" placeholder="YourRobloxName" style="width:160px">
+          <button class="gold" onclick="rbxLink()">GET CODE</button>
+        </div>
+        <div id="rbxStep2" style="display:none; margin-top:10px; font-size:13px; color:#aaa; line-height:1.7">
+          1. Open your <b>Roblox profile</b> and edit the <b>About</b> section<br>
+          2. Paste this code anywhere in it and save it on Roblox:<br>
+          <span id="rbxCode" style="color:#f5a623; font-weight:bold; user-select:all; background:#101114; border-radius:6px; padding:5px 9px; display:inline-block; margin:4px 0"></span><br>
+          3. Then press: <button class="gold" style="font-size:12px; padding:5px 12px" onclick="rbxVerify()">VERIFY</button>
+          <span style="color:#666; font-size:11px">(you can delete the code from Roblox afterwards)</span>
+        </div>
+        <div class="msg" id="rbxMsg" style="margin-top:6px; min-height:0"></div>
+      </div>
+    </div>
+    <div style="color:#888; font-size:13px; margin:14px 0 6px 0">Inventory (<span id="pInvCount">0</span> items):</div>
+    <div class="invgrid" id="pInv"></div>
+    <div id="affBox" style="display:none; margin-top:16px; background:#17181c; border:1px solid #262933; border-radius:10px; padding:14px">
+      <h3 style="margin-bottom:6px">💸 Affiliate</h3>
+      <div style="color:#888; font-size:13px; margin-bottom:10px">Choose <b style="color:#f5a623">your own code</b> below and tell friends to enter it in the "Invited by" box on their profile — you earn <b style="color:#f5a623">1%</b> of everything they wager, forever!</div>
+      <div class="pstats" style="align-items:center">
+        <span class="stat">Players invited: <span id="affCount">0</span></span>
+        <span class="stat">Earned: <span id="affEarned">0</span></span>
+        <button class="gold" onclick="requestPayout()">REQUEST PAYOUT</button>
+        <span class="stat" id="affPending" style="display:none">Pending payout: <span id="affPendingAmt" style="color:#f5a623">0</span></span>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px">
+        <span style="font-size:13px; color:#888; flex:none">Your code:</span>
+        <input id="affCodeInput" maxlength="20" placeholder="Choose your code" style="flex:1; min-width:0; color:#f5a623; font-weight:bold">
+        <button class="gold" onclick="setAffCode()">SAVE</button>
+      </div>
+      <div id="affSetRow" style="display:flex; gap:8px; align-items:center">
+        <span style="font-size:13px; color:#888; flex:none">Invited by:</span>
+        <input id="affRefInput" placeholder="Code of who invited you" style="flex:1; min-width:0">
+        <button class="gold" onclick="setAffiliate()">SAVE</button>
+      </div>
+      <div class="msg" id="affMsg"></div>
+    </div>
+</div>
+<!-- HOVER PROFILE CARD (leaderboard) -->
+<div id="lbCard"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+let token = localStorage.getItem('token') || null;
+let me = null;
+let inventory = [];
+let socket = null;
+let allItems = [];
+
+let upSel = new Set();
+let targetSel = null;
+let upBusy = false;
+let upShowPct = null; // while spinning: freeze the yellow arc + % on screen
+
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmt(n){ return Number(n).toLocaleString('en-US'); }
+function lvlBadge(l){ return l ? `<span class="lvl">${l}</span>` : ''; }
+function miniImg(it){ return it.image ? `<img class="mini" src="${esc(it.image)}" alt="">` : ''; }
+
+/* ---------- loading screen: blocks the whole page until everything is ready ---------- */
+let loadedFeed = false, loadedMe = !token;
+function maybeHideLoad() {
+  if (loadedFeed && loadedMe) document.getElementById('loadScreen').style.display = 'none';
+}
+// safety: never keep the site blocked more than 10 seconds even if something is slow
+setTimeout(() => { loadedFeed = true; loadedMe = true; maybeHideLoad(); }, 10000);
+
+async function api(path, opts={}) {
+  opts.headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});
+  if (token) opts.headers['x-token'] = token;
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(j.error || 'Request failed');
+  return j;
+}
+
+/* ---------- auth ---------- */
+let authMode = 'register';
+function openAuth(mode) {
+  closeAllPopups();
+  authMode = mode;
+  document.getElementById('authTitle').textContent = mode === 'register' ? 'Register' : 'Login';
+  document.getElementById('authSubmit').textContent = mode === 'register' ? 'REGISTER' : 'LOGIN';
+  document.getElementById('authMsg').textContent = '';
+  showPage('auth');
+  document.getElementById('username').focus();
+}
+
+async function doAuth() {
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  try {
+    const j = await api('/api/' + authMode, { method:'POST', body: JSON.stringify({username, password}) });
+    token = j.token; localStorage.setItem('token', token);
+    closeAllPopups();
+    document.getElementById('topMsg').textContent = '';
+    loadMe();
+  } catch(e) { document.getElementById('authMsg').textContent = e.message; }
+}
+function logout(){ localStorage.removeItem('token'); location.reload(); }
+
+async function loadMe() {
+  try { me = await api('/api/me'); }
+  catch(e) { token=null; localStorage.removeItem('token'); loadedMe = true; maybeHideLoad(); return; }
+  document.getElementById('authArea').style.display = 'none';
+  document.getElementById('userArea').style.display = '';
+  document.getElementById('logoutBtn').style.display = '';
+  document.getElementById('profBtnWrap').style.display = '';
+  document.getElementById('whoami').textContent = me.username;
+  // admin panel link is only visible to whitelisted accounts
+  const ADMIN_USERS = ['mikalasas'];
+  if (ADMIN_USERS.includes(me.username.toLowerCase())) document.getElementById('adminLink').style.display = '';
+  setInventory(me);
+  updateVerifyUI();
+  if (socket) socket.emit('auth', token);
+  loadedMe = true; maybeHideLoad();
+}
+
+/* ---------- mandatory Roblox verification ---------- */
+function updateVerifyUI() {
+  const need = !!(me && !me.roblox);
+  document.getElementById('verifyBtn').style.display = need ? '' : 'none';
+  document.getElementById('verifyBanner').style.display = need ? '' : 'none';
+}
+async function openVerify() {
+  if (!me) return;
+  await openProfile(me.username);
+  if (me.roblox) return; // already linked
+  document.getElementById('rbxStartBtn').style.display = 'none';
+  document.getElementById('rbxForm').style.display = '';
+  try { document.getElementById('rbxNameInp').focus(); } catch(e) {}
+}
+
+function setInventory(data) {
+  inventory = data.inventory;
+  me.wins = data.wins; me.losses = data.losses;
+  if (data.level) me.level = data.level;
+  if (data.money !== undefined) {
+    me.money = data.money;
+    document.getElementById('myMoney').textContent = fmt(data.money);
+    const mk = document.getElementById('mkMoney');
+    if (mk) mk.textContent = fmt(data.money);
+  }
+  document.getElementById('totalVal').textContent = fmt(data.totalValue);
+
+  document.getElementById('myLvl').textContent = me.level || 1;
+  renderMyInv();
+  updateUpgrader();
+  if (document.getElementById('dwPage').style.display !== 'none' && dwMode === 'withdraw') renderDwInv();
+}
+
+function flash(t) {
+  const el = document.getElementById('topMsg');
+  el.textContent = t;
+  setTimeout(() => { if (el.textContent === t) el.textContent = ''; }, 4000);
+}
+
+/* ---------- upgrader ---------- */
+/* ---------- item list pagination ---------- */
+const ITEMS_PER_PAGE = 12;
+let myInvPage = 0, targetPage = 0;
+function renderPager(elId, page, total, fnName) {
+  const el = document.getElementById(elId);
+  const pages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE));
+  if (pages <= 1) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'flex';
+  el.innerHTML = `<button ${page <= 0 ? 'disabled' : ''} onclick="${fnName}(-1)">&#9664; Prev</button>
+    <span class="pginfo">Page ${page + 1} / ${pages}</span>
+    <button ${page >= pages - 1 ? 'disabled' : ''} onclick="${fnName}(1)">Next &#9654;</button>`;
+}
+function myInvPageMove(d) { myInvPage += d; renderMyInv(); }
+function targetPageMove(d) { targetPage += d; renderTargets(); }
+
+function renderMyInv() {
+  const el = document.getElementById('myInv');
+  if (!me) { el.innerHTML = '<div style="color:#777; grid-column:1/-1">Log in to see your items.</div>'; renderPager('myInvPager', 0, 0, 'myInvPageMove'); return; }
+  upSel = new Set([...upSel].filter(iid => inventory.some(i => i.iid === iid)));
+  const sorted = inventory.slice().sort((a, b) => b.value - a.value);
+  const pages = Math.max(1, Math.ceil(sorted.length / ITEMS_PER_PAGE));
+  if (myInvPage >= pages) myInvPage = pages - 1;
+  if (myInvPage < 0) myInvPage = 0;
+  const slice = sorted.slice(myInvPage * ITEMS_PER_PAGE, (myInvPage + 1) * ITEMS_PER_PAGE);
+  el.innerHTML = sorted.length
+    ? slice.map(it => `<div class="card selectable ${upSel.has(it.iid)?'sel':''}" onclick="upToggle(${it.iid})">
+        ${it.image ? `<img src="${esc(it.image)}">` : '<span class="noimg">no img</span>'}
+        <div class="nm" title="${esc(it.name)}">${esc(it.name)}</div>
+        <div class="vl">${fmt(it.value)}</div>
+      </div>`).join('')
+    : '<div style="color:#777; grid-column:1/-1">You have no items — buy some in the Market or ask the admin.</div>';
+  renderPager('myInvPager', myInvPage, sorted.length, 'myInvPageMove');
+}
+
+function upToggle(iid) {
+  if (upBusy) return;
+  if (upSel.has(iid)) upSel.delete(iid);
+  else {
+    if (upSel.size >= 15) { flash('Max 15 items per upgrade!'); return; }
+    upSel.add(iid);
+  }
+  renderMyInv();
+  updateUpgrader();
+}
+
+async function loadTargets() {
+  try { allItems = await api('/api/items'); } catch(e) { return; }
+  allItems.sort((a, b) => b.value - a.value); // higher value first
+  renderTargets();
+}
+function renderTargets() {
+  const el = document.getElementById('targetInv');
+  if (targetSel && !allItems.some(i => i.id === targetSel)) targetSel = null;
+  const pages = Math.max(1, Math.ceil(allItems.length / ITEMS_PER_PAGE));
+  if (targetPage >= pages) targetPage = pages - 1;
+  if (targetPage < 0) targetPage = 0;
+  const slice = allItems.slice(targetPage * ITEMS_PER_PAGE, (targetPage + 1) * ITEMS_PER_PAGE);
+  el.innerHTML = allItems.length
+    ? slice.map(it => `<div class="card selectable ${targetSel === it.id ? 'sel' : ''}" onclick="pickTarget(${it.id})">
+        ${it.image ? `<img src="${esc(it.image)}">` : '<span class="noimg">no img</span>'}
+        <div class="nm" title="${esc(it.name)}">${esc(it.name)}</div>
+        <div class="vl">${fmt(it.value)}</div>
+      </div>`).join('')
+    : '<div style="color:#777; grid-column:1/-1">No items exist yet — the admin can add some.</div>';
+  renderPager('targetPager', targetPage, allItems.length, 'targetPageMove');
+}
+function pickTarget(id) {
+  if (upBusy) return;
+  targetSel = targetSel === id ? null : id;
+  renderTargets();
+  updateUpgrader();
+}
+
+function upInputValue() {
+  const moneyInp = Math.max(0, Math.floor(Number(document.getElementById('upMoneyInp').value) || 0));
+  return inventory.filter(i => upSel.has(i.iid)).reduce((s, i) => s + i.value, 0) + moneyInp;
+}
+
+/* ---------- quick-pick buttons: auto-select the target closest to a chance ---------- */
+function quickTarget(desired) {
+  if (upBusy) return;
+  const input = upInputValue();
+  if (input <= 0) { flash('Add items or money to use first!'); return; }
+  let best = null, bd = Infinity;
+  for (const it of allItems) {
+    if (it.value <= input) continue;                    // must be an upgrade
+    if (input / it.value * 100 > 80.0001) continue;     // respect the 80% cap
+    const d = Math.abs(it.value - desired);
+    if (d < bd) { bd = d; best = it; }
+  }
+  if (!best) { flash('No item in the shop fits that chance!'); return; }
+  targetSel = best.id;
+  targetPage = Math.floor(allItems.findIndex(i => i.id === best.id) / ITEMS_PER_PAGE);
+  renderTargets();
+  updateUpgrader();
+}
+function quickMult(m) { quickTarget(upInputValue() * m); }
+function quickPct(p) { quickTarget(upInputValue() / (p / 100)); }
+function toggleQuickSet() {
+  const el = document.getElementById('quickSet');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+function applyQuickPct() {
+  const p = Number(document.getElementById('quickPctInp').value) || 0;
+  if (p < 1 || p > 80) { flash('Chance must be between 1% and 80%!'); return; }
+  quickPct(p);
+}
+
+function updateUpgrader() {
+  const left = document.getElementById('upLeft');
+  const right = document.getElementById('upRight');
+  const moneyInp = Math.max(0, Math.floor(Number(document.getElementById('upMoneyInp').value) || 0));
+  const picked = inventory.filter(i => upSel.has(i.iid));
+  const itemsVal = picked.reduce((s, i) => s + i.value, 0);
+  const input = itemsVal + moneyInp;
+  const target = allItems.find(i => i.id === targetSel) || null;
+
+  left.innerHTML = (picked.length || moneyInp > 0)
+    ? `<div style="margin-bottom:8px">${picked.map(i => miniImg(i) || '▪').join(' ')}</div>
+       <div style="font-size:15px">${picked.length} item${picked.length === 1 ? '' : 's'}${moneyInp > 0 ? ' + ' + fmt(moneyInp) + ' money' : ''}</div>
+       <div style="color:#4caf50; font-weight:bold; font-size:26px; margin-top:6px">${fmt(input)}</div>`
+    : '<div class="ph">Select items (and/or money) below to use</div>';
+
+  right.innerHTML = target
+    ? `${target.image ? `<img src="${esc(target.image)}" style="width:140px; height:140px; object-fit:contain; background:transparent; border-radius:8px">` : '<span class="noimg" style="width:140px; height:140px">no img</span>'}
+       <div style="margin-top:10px; font-weight:bold; font-size:18px">${esc(target.name)}</div>
+       <div style="color:#f5a623; font-weight:bold; font-size:26px; margin-top:4px">${fmt(target.value)}</div>`
+    : '<div class="ph">Select the item you want to upgrade into below</div>';
+
+  let pct = 0, valid = false, note = '';
+  if (input > 0 && target) {
+    if (input >= target.value) note = '<span style="color:#e74c3c">Target must be worth more than your input!</span>';
+    else {
+      pct = input / target.value * 100; // shown % = simple value ratio (edge is applied in the roll)
+      if (pct > 80) { note = '<span style="color:#e74c3c">Max chance is 80% — pick a more expensive target!</span>'; }
+      else valid = true;
+    }
+  }
+  if (me && moneyInp > (me.money || 0)) { valid = false; note = '<span style="color:#e74c3c">Not enough money!</span>'; }
+  if (upShowPct === null) { // don't touch the wheel while a spin is showing
+    const c = 2 * Math.PI * 84;
+    document.getElementById('upArc').setAttribute('stroke-dasharray', (c * pct / 100).toFixed(1) + ' ' + c.toFixed(1));
+    // center the yellow zone around the BOTTOM of the wheel (half left, half right)
+    document.getElementById('upArc').setAttribute('transform', 'rotate(' + (90 - pct * 1.8) + ' 100 100)');
+    document.getElementById('upArc').setAttribute('stroke', '#f5a623');
+    document.getElementById('upPct').textContent = (pct ? pct.toFixed(2) : '0') + '%';
+  }
+  document.getElementById('upBtn').disabled = !valid || upBusy || !me;
+  if (!upBusy) document.getElementById('upStatus').innerHTML = note || (me ? '' : '<span style="color:#888">Log in to upgrade</span>');
+}
+
+/* ---------- spin sound (ticks that slow down with the wheel) ---------- */
+let audioCtx = null;
+function initAudio() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } catch (e) {}
+}
+function spinEaseInv(p) {
+  // find t where spinEase(t) = p (so ticks happen exactly when the wheel passes equal angles)
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 24; i++) { const mid = (lo + hi) / 2; if (spinEase(mid) < p) lo = mid; else hi = mid; }
+  return (lo + hi) / 2;
+}
+function playSpinSound(durMs) {
+  if (!audioCtx) return;
+  try {
+    const now = audioCtx.currentTime, dur = durMs / 1000;
+    const ticks = 80;
+    for (let i = 0; i < ticks; i++) {
+      const p = i / ticks;
+      // ticks follow the wheel's real speed: slow start, fast middle, long slow ending
+      const t = now + dur * spinEaseInv(p);
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = 'square';
+      o.frequency.value = 1800;
+      g.gain.setValueAtTime(0.06, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.035);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(t); o.stop(t + 0.05);
+    }
+    } catch (e) {}
+}
+
+function playWinSound() {
+  if (!audioCtx) return;
+  try {
+    const now = audioCtx.currentTime;
+    // rising happy arpeggio: C5 E5 G5 C6
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+      const t = now + i * 0.09;
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = 'triangle'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.14, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.38);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(t); o.stop(t + 0.4);
+    });
+    // sparkle shimmer on top
+    for (let i = 0; i < 6; i++) {
+      const t = now + 0.3 + i * 0.05;
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = 'sine'; o.frequency.value = 1500 + Math.random() * 1500;
+      g.gain.setValueAtTime(0.045, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(t); o.stop(t + 0.14);
+    }
+  } catch (e) {}
+}
+function playLoseSound() {
+  if (!audioCtx) return;
+  try {
+    const now = audioCtx.currentTime;
+    // sad descending womp-womp
+    [[300, 170, 0], [220, 110, 0.28]].forEach(([f1, f2, dt]) => {
+      const t = now + dt;
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f1, t);
+      o.frequency.exponentialRampToValueAtTime(f2, t + 0.25);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.09, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(t); o.stop(t + 0.32);
+    });
+  } catch (e) {}
+}
+/* ---------- tab-friendly timers ----------
+   Browsers slow down timers in background tabs, which used to desync the spin
+   (stuck SPINNING, items seeming to vanish, late resets). These timers catch up
+   instantly the moment you come back to the tab. */
+let pendingTimers = [];
+function schedule(fn, ms) {
+  const o = { due: Date.now() + ms, fn, fired: false };
+  o.id = setTimeout(() => { if (!o.fired) { o.fired = true; fn(); } }, ms);
+  pendingTimers.push(o);
+  if (pendingTimers.length > 30) pendingTimers = pendingTimers.filter(t => !t.fired);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  // run everything that should already have happened, in order
+  pendingTimers.filter(t => !t.fired && Date.now() >= t.due)
+    .sort((a, b) => a.due - b.due)
+    .forEach(t => { t.fired = true; clearTimeout(t.id); try { t.fn(); } catch(e){} });
+  pendingTimers = pendingTimers.filter(t => !t.fired);
+});
+
+/* clock-driven spin: position is always computed from the real time elapsed,
+   so it stays smooth and can never fall behind or desync (even when tabbing out) */
+/* ---------- win / lose effects ---------- */
+function fxWin() {
+  const svg = document.getElementById('upCircle');
+  const host = svg.parentElement;
+  if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+  // "WIN!" pop text
+  const pop = document.createElement('div');
+  pop.className = 'winPop'; pop.textContent = 'WIN!';
+  host.appendChild(pop);
+  setTimeout(() => pop.remove(), 1750);
+  // confetti burst from the wheel center
+  const layer = document.createElement('div');
+  layer.className = 'fxlayer'; host.appendChild(layer);
+  const r = svg.getBoundingClientRect(), hr = host.getBoundingClientRect();
+  const cx = r.left - hr.left + r.width / 2, cy = r.top - hr.top + r.height / 2;
+  const colors = ['#f5a623', '#ffd54f', '#4caf50', '#fff176', '#ff8a65', '#81c784'];
+  const parts = [];
+  for (let i = 0; i < 46; i++) {
+    const d = document.createElement('div');
+    d.className = 'conf';
+    d.style.background = colors[i % colors.length];
+    layer.appendChild(d);
+    const a = Math.random() * Math.PI * 2, sp = 4 + Math.random() * 7;
+    parts.push({ el: d, x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 5,
+                 rot: Math.random() * 360, vr: (Math.random() - .5) * 24 });
+  }
+  const t0 = performance.now(), DUR = 1600;
+  requestAnimationFrame(function frame(now) {
+    const t = now - t0;
+    for (const p of parts) {
+      p.x += p.vx; p.y += p.vy; p.vy += 0.22; p.vx *= 0.99; p.rot += p.vr;
+      p.el.style.transform = 'translate(' + p.x + 'px,' + p.y + 'px) rotate(' + p.rot + 'deg)';
+      p.el.style.opacity = Math.max(0, 1 - t / DUR);
+    }
+    if (t < DUR && layer.parentNode) requestAnimationFrame(frame);
+    else layer.remove();
+  });
+  setTimeout(() => { if (layer.parentNode) layer.remove(); }, DUR + 600); // safety (tab-out)
+}
+function fxLose() {
+  const svg = document.getElementById('upCircle');
+  svg.classList.add('shakeFx');
+  setTimeout(() => svg.classList.remove('shakeFx'), 650);
+}
+
+/* Natural upgrader-style spin: starts from standstill, accelerates, then a long
+   dramatic slow-down that crawls into the landing spot (like real upgrader sites). */
+const SPIN_MS = 5000, SPIN_LAPS_DEG = 1440; // 4 full laps before landing
+const HOUSE_EDGE = 0.08; // must match the server: shown % = real rolled % = ratio × 0.92
+function spinEase(t) {
+  const u = t * t * (3 - 2 * t);     // smooth acceleration from 0 speed
+  return 1 - Math.pow(1 - u, 2);     // long gentle deceleration into the result
+}
+function animateSpin(pointer, targetDeg, durMs, done) {
+  const start = performance.now();
+  function frame(now) {
+    const p = Math.min(1, (now - start) / durMs);
+    pointer.style.transform = 'rotate(' + (targetDeg * spinEase(p)) + 'deg)';
+    if (p < 1) requestAnimationFrame(frame);
+    else if (done) done(); // fires the instant the pointer lands — no separate timer to drift
+  }
+  requestAnimationFrame(frame);
+}
+
+function doUpgrade() {
+  if (!me || upBusy) return;
+  if (!me.roblox) { flash('🔗 Verify your Roblox account to play!'); openVerify(); return; }
+  initAudio();
+  const money = Math.max(0, Math.floor(Number(document.getElementById('upMoneyInp').value) || 0));
+  upBusy = true;
+  const btn = document.getElementById('upBtn');
+  const status = document.getElementById('upStatus');
+  const circle = document.getElementById('upCircle');
+  const pointer = document.getElementById('upPointer');
+  btn.disabled = true;
+  document.getElementById('upMoneyInp').disabled = true;
+  // freeze the yellow chance arc + % so they stay visible during the whole spin
+  const tgt = allItems.find(i => i.id === targetSel);
+  upShowPct = tgt ? upInputValue() / tgt.value * 100 : 0;
+  // reset the needle instantly before spinning
+  pointer.style.transform = 'rotate(0deg)';
+  status.innerHTML = '<span style="color:#f5a623; font-weight:bold" class="pulsing">SPINNING...</span>';
+  socket.emit('upgrade', { iids: [...upSel], money, targetItemId: targetSel }, res => {
+    if (res.error) {
+      upBusy = false;
+      upShowPct = null;
+      document.getElementById('upMoneyInp').disabled = false;
+      if (res.error === 'VERIFY_REQUIRED') {
+        status.innerHTML = '<span style="color:#f5a623; font-weight:bold">🔗 Verify your Roblox account to play!</span>';
+        updateVerifyUI(); openVerify();
+      } else {
+        status.innerHTML = '<span style="color:#e74c3c">' + esc(res.error) + '</span>';
+      }
+      updateUpgrader();
+      return;
+    }
+    const r = res.result;
+    // The wheel displays the simple value-ratio % while the server rolls with the house
+    // edge. Map the true roll into display-space so the needle ALWAYS lands inside the
+    // orange zone on a win and outside it on a loss — no edge-of-arc lies.
+    const rawPct = r.chance / (1 - HOUSE_EDGE);                 // the % shown on the wheel
+    const dispRoll = r.win
+      ? (r.roll / r.chance) * rawPct                            // scale win rolls into the shown zone
+      : rawPct + (r.roll - r.chance) / (100 - r.chance) * (100 - rawPct); // and losses outside it
+    playSpinSound(SPIN_MS);
+    animateSpin(pointer, SPIN_LAPS_DEG + (dispRoll - rawPct / 2) * 3.6, SPIN_MS, () => {
+      circle.classList.add(r.win ? 'wonGlow' : 'lostGlow');
+      if (r.win) { fxWin(); playWinSound(); } else { fxLose(); playLoseSound(); }
+      document.getElementById('upArc').setAttribute('stroke', r.win ? '#4caf50' : '#e74c3c');
+      const seedLine = `<br><span style="color:#555; font-size:10px">seed: ${esc(r.seed)}<br>sha256: ${esc(r.hash)}</span>`;
+      status.innerHTML = (r.win
+        ? `<span class="done-win">✅ WON! You got ${esc(r.target.name)} (${fmt(r.target.value)})</span><br><span style="color:#666; font-size:11px">rolled ${dispRoll.toFixed(2)}% — needed under ${rawPct.toFixed(2)}%</span>`
+        : `<span style="color:#e74c3c; font-weight:bold">❌ LOST (rolled ${dispRoll.toFixed(2)}% — needed under ${rawPct.toFixed(2)}%)</span>`) + seedLine;
+      upSel = new Set();
+      document.getElementById('upMoneyInp').value = 0;
+      renderMyInv();
+      updateUpgrader();
+      // stay locked (upBusy) until the glow fades and the wheel fully resets to 0%
+      schedule(() => {
+        circle.classList.remove('wonGlow', 'lostGlow');
+        upShowPct = null;
+        upBusy = false;
+        document.getElementById('upMoneyInp').disabled = false;
+        updateUpgrader();
+      }, 2200);
+    });
+  });
+}
+
+function renderRecent(list) {
+  const el = document.getElementById('winsFeed');
+  const wins = list.filter(r => r.win);
+  if (!wins.length) { el.innerHTML = '<div style="color:#777; font-size:12px">No wins yet.</div>'; return; }
+  el.innerHTML = wins.map(r => {
+    const shownPct = (r.chance / (1 - HOUSE_EDGE)).toFixed(1); // same simple % as the wheel shows
+    return `<div class="wrow" title="${esc(r.username)} won ${esc(r.target.name)} (${fmt(r.target.value)}) at ${shownPct}% — risked ${fmt(r.inputValue)} | verify: sha256(${r.seed}) = ${r.hash}">
+      ${r.target.image ? `<img src="${esc(r.target.image)}">` : '<div class="noimg42">no img</div>'}
+      <div class="wn">
+        <b>${esc(r.target.name)}</b>
+        <span style="color:#f5a623; font-weight:bold">${fmt(r.target.value)}</span><br>
+        <span style="color:#888"><span class="plink" onclick="openProfile('${esc(r.username)}')">${esc(r.username)}</span> @ ${shownPct}%</span>
+      </div>
+    </div>`; }).join('');
+}
+
+/* ---------- popups ---------- */
+function closeAllPopups() { // returns you to the upgrader/leaderboard and closes the profile popup
+  closeProfile();
+  showPage(basePage);
+}
+function closeProfile() {
+  document.getElementById('profileOverlay').style.display = 'none';
+  document.getElementById('profilePopup').style.display = 'none';
+}
+
+/* ---------- chat ---------- */
+let chatMsgs = [];
+function sideTab(which) {
+  document.getElementById('tabChat').classList.toggle('active', which === 'chat');
+  document.getElementById('tabWins').classList.toggle('active', which === 'wins');
+  document.getElementById('chatBox').style.display = which === 'chat' ? 'flex' : 'none';
+  document.getElementById('winsFeed').style.display = which === 'wins' ? 'block' : 'none';
+  if (which === 'chat') scrollChat();
+}
+function renderChat() {
+  const el = document.getElementById('chatFeed');
+  el.innerHTML = chatMsgs.length
+    ? chatMsgs.map(m => m.system
+        ? `<div class="cmsg sys">${esc(m.text)}</div>`
+        : `<div class="cmsg">${m.avatar ? `<img class="cav" src="${esc(m.avatar)}">` : ''}<span class="lvl">${m.level || 1}</span> <span class="cu" onclick="openProfile('${esc(m.username)}')">${esc(m.username)}</span> <span class="ct">${esc(m.text)}</span></div>`).join('')
+    : '<div style="color:#777; font-size:12px">No messages yet — say hi!</div>';
+  scrollChat();
+}
+function scrollChat() {
+  const el = document.getElementById('chatFeed');
+  el.scrollTop = el.scrollHeight;
+}
+function sendChat() {
+  const inp = document.getElementById('chatInp');
+  const m = document.getElementById('chatMsg');
+  const text = inp.value.trim();
+  if (!text) return;
+  if (!me) { m.textContent = 'Log in to chat.'; return; }
+  if (!socket) return;
+  socket.emit('chat', text, r => {
+    if (r && r.error) m.textContent = r.error;
+    else { inp.value = ''; m.textContent = ''; }
+  });
+}
+
+/* ---------- tips ---------- */
+let tipTarget = null;
+async function sendTip() {
+  const amt = Math.floor(Number(document.getElementById('tipAmt').value) || 0);
+  const m = document.getElementById('tipMsg');
+  if (amt <= 0) { m.textContent = 'Enter an amount'; return; }
+  m.textContent = '...';
+  try {
+    await api('/api/tip', { method: 'POST', body: JSON.stringify({ to: tipTarget, amount: amt }) });
+    m.textContent = 'Sent! 💸';
+    document.getElementById('tipAmt').value = '';
+  } catch(e) { m.textContent = e.message; }
+}
+
+/* ---------- leaderboard page ---------- */
+let lbData = [], lbMode = 'wagered';
+const PAGE_IDS = { main:'main', lb:'lbPage', market:'marketPage', dw:'dwPage', auth:'authPage' };
+let basePage = 'main'; // last "home" page (upgrader or leaderboard) to return to when closing a sub-page
+function showPage(which) {
+  Object.values(PAGE_IDS).forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+  document.getElementById(PAGE_IDS[which]).style.display = '';
+  document.getElementById('navUp').classList.toggle('active', which === 'main');
+  document.getElementById('navLb').classList.toggle('active', which === 'lb');
+  if (which === 'main' || which === 'lb') basePage = which;
+  lbLeave();
+  if (which === 'lb') loadLeaderboard();
+  window.scrollTo(0, 0);
+}
+async function loadLeaderboard() {
+  try { lbData = await api('/api/leaderboard'); } catch(e) { flash(e.message); return; }
+  lbTab(lbMode);
+}
+function lbTab(mode) {
+  mode = 'wagered'; // leaderboard ranks by total wagered only
+  const sorted = lbData.slice().sort((a, b) => (b[mode] || 0) - (a[mode] || 0)).slice(0, 10); // top 10 only
+  const label = u => fmt(u.wagered) + ' wagered';
+  // podium: 2nd on the left, 1st in the middle (tallest), 3rd on the right
+  const top3 = sorted.slice(0, 3);
+  const pod = [top3[1], top3[0], top3[2]];
+  const cls = ['second', 'first', 'third'];
+  const medal = ['🥈', '🥇', '🥉'];
+  const num = ['2', '1', '3'];
+  document.getElementById('podium').innerHTML = pod.map((u, i) => u ? `
+    <div class="pod ${cls[i]}" onmouseenter="lbHover(event, '${esc(u.username)}')" onmouseleave="lbLeave()"
+         onclick="lbLeave(); openProfile('${esc(u.username)}')">
+      <div class="pmedal">${medal[i]}</div>
+      <div class="pname"><span class="lvl">${u.level || 1}</span> ${esc(u.username)}</div>
+      <div class="pval">${label(u)}</div>
+      <div class="pbase">${num[i]}</div>
+    </div>` : '').join('')
+    || '<div style="color:#777">No players yet.</div>';
+  // everyone below the podium
+  const rest = sorted.slice(3);
+  document.getElementById('lbList').innerHTML = rest.map((u, i) => `
+    <div class="lbrow" onmouseenter="lbHover(event, '${esc(u.username)}')" onmouseleave="lbLeave()"
+         onclick="lbLeave(); openProfile('${esc(u.username)}')">
+      <span class="rank">#${i + 4}</span>
+      <span class="lvl">${u.level || 1}</span>
+      <span class="lbname">${esc(u.username)}</span>
+      <span style="flex:1"></span>
+      <span style="color:${mode === 'wins' ? '#4caf50' : '#f5a623'}; font-weight:bold">${label(u)}</span>
+    </div>`).join('');
+}
+function lbHover(ev, username) {
+  const u = lbData.find(x => x.username === username);
+  if (!u) return;
+  const total = (u.wins || 0) + (u.losses || 0);
+  const wr = total ? Math.round((u.wins || 0) / total * 100) : 0;
+  const el = document.getElementById('lbCard');
+  el.innerHTML = `
+    <b style="color:#fff">${esc(u.username)}</b> <span class="lvl">${u.level || 1}</span>
+    <div style="margin-top:7px; display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:12.5px">
+      <span style="color:#9aa0ac">Wins: <b style="color:#4caf50">${fmt(u.wins || 0)}</b></span>
+      <span style="color:#9aa0ac">Losses: <b style="color:#e74c3c">${fmt(u.losses || 0)}</b></span>
+      <span style="color:#9aa0ac">Winrate: <b style="color:#fff">${wr}%</b></span>
+      <span style="color:#9aa0ac">Upgrades: <b style="color:#fff">${fmt(total)}</b></span>
+      <span style="grid-column:1/-1; color:#9aa0ac">Wagered: <b style="color:#f5a623">${fmt(u.wagered || 0)}</b></span>
+      <span style="grid-column:1/-1; color:#9aa0ac">Worth: <b style="color:#4caf50">${fmt(u.worth || 0)}</b></span>
+    </div>
+    <div style="color:#666; font-size:11px; margin-top:7px">Click to open the full profile</div>`;
+  el.style.display = 'block';
+  el.style.left = Math.max(8, Math.min(ev.clientX + 16, window.innerWidth - 270)) + 'px';
+  el.style.top = Math.max(8, Math.min(ev.clientY + 12, window.innerHeight - 210)) + 'px';
+}
+function lbLeave() {
+  document.getElementById('lbCard').style.display = 'none';
+}
+
+/* ---------- marketplace ---------- */
+async function openMarket() {
+  let items = [];
+  try { items = await api('/api/items'); } catch(e) { flash(e.message); return; }
+  items.sort((a, b) => b.value - a.value); // higher value first
+  closeAllPopups();
+  document.getElementById('mkMoney').textContent = fmt(me ? (me.money || 0) : 0);
+  document.getElementById('mkGrid').innerHTML = items.length
+    ? items.map(it => `
+      <div class="card">
+        <div style="text-align:right; color:#f5a623; font-weight:bold; font-size:13px; margin-bottom:4px">${fmt(it.value)} 🪙</div>
+        ${it.image ? `<img src="${esc(it.image)}">` : '<span class="noimg">no img</span>'}
+        <div class="nm" title="${esc(it.name)}">${esc(it.name)}</div>
+        <button class="gold" style="margin-top:6px; width:100%" onclick="buyItem(${it.id})">BUY</button>
+      </div>`).join('')
+    : '<div style="color:#777; grid-column:1/-1">No items in the shop yet.</div>';
+  document.getElementById('mkMsg').textContent = '';
+  showPage('market');
+}
+async function buyItem(id) {
+  const msgEl = document.getElementById('mkMsg');
+  if (!me) { msgEl.textContent = 'Register or log in to buy!'; return; }
+  try {
+    const j = await api('/api/market/buy', { method:'POST', body: JSON.stringify({ itemId: id }) });
+    me.money = j.money;
+    document.getElementById('myMoney').textContent = fmt(j.money);
+    document.getElementById('mkMoney').textContent = fmt(j.money);
+    msgEl.textContent = 'Bought "' + j.item + '"! It is in your inventory.';
+  } catch(e) { msgEl.textContent = e.message; }
+}
+
+/* ---------- deposit / withdraw ---------- */
+let dwMode = null, dwSel = new Set();
+async function openDw(mode) {
+  if (!me) { flash('Register or log in first!'); return; }
+  let links = { deposit: '', withdraw: '' };
+  try { links = await api('/api/links'); } catch(e) {}
+  closeAllPopups();
+  dwMode = mode; dwSel = new Set();
+  document.getElementById('dwTitle').textContent = mode === 'deposit' ? '📥 Deposit' : '📤 Withdraw';
+  const link = mode === 'deposit' ? links.deposit : links.withdraw;
+  document.getElementById('dwLinkRow').innerHTML = link
+    ? `<div style="font-size:13px">${mode === 'deposit'
+          ? 'Go to the deposit place and hand over what you want to deposit:'
+          : 'This is where you will receive your withdraw:'}</div>
+       <a class="dwlink" href="${esc(link)}" target="_blank" rel="noopener">${mode === 'deposit' ? '📥 Open the deposit place' : '📤 Open the withdraw place'}</a>`
+    : `<span style="color:#888; font-size:13px">The admin has not set a ${mode} link yet — do step 2 and the admin will contact you.</span>`;
+  document.getElementById('dwNoteLbl').textContent = mode === 'deposit'
+    ? 'Tell the admin what you are depositing, then send the request:'
+    : 'Pick your items, leave a note for the admin, then send the request:';
+  document.getElementById('dwInvWrap').style.display = mode === 'withdraw' ? '' : 'none';
+  if (mode === 'withdraw') renderDwInv();
+  document.getElementById('dwNote').value = '';
+  document.getElementById('dwMsg').textContent = '';
+  document.getElementById('dwSubmit').textContent = mode === 'deposit' ? 'SEND DEPOSIT REQUEST' : 'REQUEST WITHDRAW';
+  showPage('dw');
+}
+function renderDwInv() {
+  const el = document.getElementById('dwInv');
+  dwSel = new Set([...dwSel].filter(iid => inventory.some(i => i.iid === iid)));
+  el.innerHTML = inventory.length
+    ? inventory.map(it => `<div class="card selectable ${dwSel.has(it.iid)?'sel':''}" onclick="dwToggle(${it.iid})">
+        ${it.image ? `<img src="${esc(it.image)}">` : '<span class="noimg">no img</span>'}
+        <div class="nm" title="${esc(it.name)}">${esc(it.name)}</div>
+        <div class="vl">${fmt(it.value)}</div>
+      </div>`).join('')
+    : '<div style="color:#777; grid-column:1/-1">You have no items to withdraw.</div>';
+  const total = inventory.filter(i => dwSel.has(i.iid)).reduce((s, i) => s + i.value, 0);
+  document.getElementById('dwTotal').textContent = fmt(total);
+}
+function dwToggle(iid) {
+  if (dwSel.has(iid)) dwSel.delete(iid); else dwSel.add(iid);
+  renderDwInv();
+}
+async function submitDw() {
+  const msgEl = document.getElementById('dwMsg');
+  const note = document.getElementById('dwNote').value.trim();
+  if (dwMode === 'withdraw' && !dwSel.size) { msgEl.textContent = 'Select at least 1 item.'; return; }
+  try {
+    await api('/api/' + dwMode, { method:'POST',
+      body: JSON.stringify(dwMode === 'withdraw' ? { iids: [...dwSel], note } : { note }) });
+    closeAllPopups();
+    flash(dwMode === 'deposit' ? 'Deposit request sent! An admin will handle it soon.'
+                               : 'Withdraw request sent! Your items are reserved until an admin handles it.');
+  } catch(e) { msgEl.textContent = e.message; }
+}
+
+/* ---------- profile ---------- */
+async function openProfile(username) {
+  let p;
+  try { p = await api('/api/profile/' + encodeURIComponent(username)); }
+  catch(e) { flash(e.message); return; }
+  closeProfile(); // pops up over whatever page you're on — no navigation
+  document.getElementById('profileTitle').textContent = p.username + "'s profile";
+  document.getElementById('pLevel').textContent = p.level || 1;
+  document.getElementById('pMoney').textContent = fmt(p.totalValue);
+  document.getElementById('pWins').textContent = p.wins;
+  document.getElementById('pLosses').textContent = p.losses;
+  const total = p.wins + p.losses;
+  document.getElementById('pWinrate').innerHTML = 'Winrate: <span>' + (total ? Math.round(p.wins/total*100) : 0) + '%</span>';
+  const cur = (p.xp || 0) - (p.levelXp || 0);
+  const need = (p.nextLevelXp || 100) - (p.levelXp || 0);
+  document.getElementById('xpLabel').textContent = `Level ${p.level} — ${fmt(cur)} / ${fmt(need)} XP to level ${p.level + 1}`;
+  document.getElementById('xpFill').style.width = Math.min(100, Math.round(cur / need * 100)) + '%';
+  document.getElementById('pGames').textContent = fmt(p.gamesPlayed || 0);
+  document.getElementById('pWagered').textContent = fmt(Math.floor(p.wagered || 0));
+  const inv = p.inventory || [];
+  const own = me && p.username === me.username;
+  tipTarget = p.username;
+  document.getElementById('tipRow').style.display = (me && !own) ? 'flex' : 'none';
+  document.getElementById('tipMsg').textContent = '';
+  // Roblox section: show the linked account, or (own profile only) the link button
+  document.getElementById('rbxForm').style.display = 'none';
+  document.getElementById('rbxStep2').style.display = 'none';
+  document.getElementById('rbxMsg').textContent = '';
+  document.getElementById('rbxStartBtn').style.display = '';
+  if (p.roblox && p.roblox.name) {
+    document.getElementById('rbxLinked').style.display = 'flex';
+    document.getElementById('rbxLinkBox').style.display = 'none';
+    const av = document.getElementById('rbxAvatar');
+    if (p.roblox.avatar) { av.style.display = ''; av.src = p.roblox.avatar; } else { av.style.display = 'none'; }
+    document.getElementById('rbxName').textContent =
+      (p.roblox.displayName && p.roblox.displayName !== p.roblox.name)
+        ? p.roblox.displayName + ' (@' + p.roblox.name + ')' : p.roblox.name;
+    document.getElementById('rbxUnlinkBtn').style.display = own ? '' : 'none';
+  } else {
+    document.getElementById('rbxLinked').style.display = 'none';
+    document.getElementById('rbxLinkBox').style.display = own ? '' : 'none';
+  }
+  document.getElementById('pInvCount').textContent = fmt(inv.length);
+  document.getElementById('pInv').innerHTML = inv.length
+    ? inv.map(it => `<div class="card">
+         ${it.image ? `<img src="${esc(it.image)}">` : '<span class="noimg">no img</span>'}
+         <div class="nm" title="${esc(it.name)}">${esc(it.name)}</div>
+         <div class="vl">${fmt(it.value)}</div>
+         ${own ? `<button class="gold" style="margin-top:6px; width:100%; font-size:11px; padding:4px" onclick="sellItem(${it.iid})">SELL</button>` : ''}
+       </div>`).join('')
+    : '<div style="color:#777; grid-column:1/-1">No items yet.</div>';
+  const affBox = document.getElementById('affBox');
+  affBox.style.display = 'none'; // ALWAYS hidden unless this is confirmed to be YOUR OWN profile
+  if (me && p.username === me.username) {
+    try { me = await api('/api/me'); } catch(e) {}
+    if (me && p.username === me.username) { // re-check after refresh (covers stale logins/tab switches)
+      affBox.style.display = '';
+      document.getElementById('affCodeInput').value = me.affCode || '';
+      document.getElementById('affCount').textContent = fmt(me.refCount || 0);
+      document.getElementById('affEarned').textContent = fmt(Math.floor(me.affEarned || 0));
+      const pend = me.pendingPayout || 0;
+      document.getElementById('affPending').style.display = pend > 0 ? '' : 'none';
+      document.getElementById('affPendingAmt').textContent = fmt(pend);
+      if (me.referredBy) {
+        document.getElementById('affSetRow').innerHTML =
+          `<span style="font-size:13px; color:#888">Invited by: <b style="color:#ddd">${esc(me.referredBy)}</b></span>`;
+      }
+      document.getElementById('affMsg').textContent = '';
+    }
+  }
+  document.getElementById('profileOverlay').style.display = 'block';
+  document.getElementById('profilePopup').style.display = 'block';
+}
+
+/* ---------- Roblox linking ---------- */
+async function rbxLink() {
+  const name = document.getElementById('rbxNameInp').value.trim();
+  const msg = document.getElementById('rbxMsg');
+  msg.textContent = '';
+  if (!name) { msg.textContent = 'Enter your Roblox username first'; return; }
+  try {
+    const j = await api('/api/roblox/link', { method:'POST', body: JSON.stringify({ robloxName: name }) });
+    document.getElementById('rbxStep2').style.display = '';
+    document.getElementById('rbxCode').textContent = j.code;
+  } catch(e) { msg.textContent = e.message; }
+}
+async function rbxVerify() {
+  const msg = document.getElementById('rbxMsg');
+  msg.textContent = 'Checking your Roblox profile...';
+  try {
+    const j = await api('/api/roblox/verify', { method:'POST', body: '{}' });
+    msg.textContent = '';
+    me.roblox = j.roblox;
+    updateVerifyUI();
+    flash('✅ Roblox account linked: ' + j.roblox.name + '! You can now play.');
+    openProfile(me.username);
+  } catch(e) { msg.textContent = e.message; }
+}
+async function rbxUnlink() {
+  if (!confirm('Unlink your Roblox account?')) return;
+  try {
+    await api('/api/roblox/unlink', { method:'POST', body:'{}' });
+    me.roblox = null;
+    updateVerifyUI();
+    openProfile(me.username);
+  } catch(e) { flash(e.message); }
+}
+
+async function sellItem(iid) {
+  if (!confirm('Sell this item for its full value? The money goes to your balance.')) return;
+  try {
+    const j = await api('/api/market/sell', { method:'POST', body: JSON.stringify({ iid }) });
+    me.money = j.money;
+    document.getElementById('myMoney').textContent = fmt(j.money);
+    flash('Sold "' + j.item + '" for ' + fmt(j.sold) + '!');
+    openProfile(me.username);
+  } catch(e) { flash(e.message); }
+}
+
+async function requestPayout() {
+  const msgEl = document.getElementById('affMsg');
+  try {
+    const j = await api('/api/affiliate/payout', { method:'POST', body: '{}' });
+    if (me) { me.affEarned = j.remaining; me.pendingPayout = (me.pendingPayout || 0) + j.amount; }
+    document.getElementById('affEarned').textContent = fmt(Math.floor(j.remaining || 0));
+    document.getElementById('affPending').style.display = '';
+    document.getElementById('affPendingAmt').textContent = fmt(me ? me.pendingPayout : j.amount);
+    msgEl.textContent = 'Payout of ' + fmt(j.amount) + ' requested! An admin will pay you out soon.';
+  } catch(e) { msgEl.textContent = e.message; }
+}
+
+async function setAffCode() {
+  const code = document.getElementById('affCodeInput').value.trim();
+  const msgEl = document.getElementById('affMsg');
+  if (!code) { msgEl.textContent = 'Enter a code.'; return; }
+  try {
+    const j = await api('/api/affiliate/code', { method:'POST', body: JSON.stringify({ code }) });
+    if (me) me.affCode = j.code;
+    msgEl.textContent = 'Saved! Your affiliate code is now "' + j.code + '".';
+  } catch(e) { msgEl.textContent = e.message; }
+}
+
+async function setAffiliate() {
+  const name = document.getElementById('affRefInput').value.trim();
+  const msgEl = document.getElementById('affMsg');
+  if (!name) { msgEl.textContent = 'Enter a code.'; return; }
+  try {
+    const j = await api('/api/affiliate', { method:'POST', body: JSON.stringify({ code: name }) });
+    document.getElementById('affSetRow').innerHTML =
+      `<span style="font-size:13px; color:#888">Invited by: <b style="color:#ddd">${esc(j.referredBy)}</b></span>`;
+    msgEl.textContent = 'Saved! They now earn 1% of everything you wager.';
+  } catch(e) { msgEl.textContent = e.message; }
+}
+
+
+/* ---------- live updates ---------- */
+function connectSocket() {
+  socket = io();
+  socket.on('connect', () => socket.emit('auth', token));
+  socket.on('inventory', d => setInventory(Object.assign({}, me, d)));
+  socket.on('stats', s => { document.getElementById('totUp').textContent = fmt(s.totalUpgrades || 0); });
+  socket.on('chat_history', list => { chatMsgs = list || []; renderChat(); });
+  socket.on('chat_msg', m => {
+    chatMsgs.push(m);
+    if (chatMsgs.length > 50) chatMsgs.shift();
+    renderChat();
+  });
+  socket.on('recent', list => {
+    // anti-spoiler: new wins only show up ~2s AFTER the spinner's wheel has finished (3.3s spin + 2s)
+    if (!loadedFeed) renderRecent(list);
+    else schedule(() => renderRecent(list), 7100); // spin (5s) + reveal buffer — no spoilers in LIVE WINS
+    loadedFeed = true; maybeHideLoad();
+  });
+  socket.on('items_updated', async () => {
+    loadTargets();
+    if (me) { try { setInventory(await api('/api/me')); } catch(e){} }
+  });
+}
+
+connectSocket();
+loadTargets();
+if (token) loadMe();
+</script>
+</body>
+</html>

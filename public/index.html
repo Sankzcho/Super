@@ -63,6 +63,12 @@
           border:1px solid #262933; border-radius:8px; padding:8px; margin-bottom:8px; font-size:12px;
           transition:border-color .15s; animation:winIn .35s ease; }
   .wrow:hover { border-color:rgba(245,166,35,.45); }
+  .topwin { border:1px solid rgba(245,166,35,.8); border-radius:10px; margin:8px 8px 10px; padding:3px 5px 5px;
+    background:linear-gradient(160deg, rgba(245,166,35,.16), rgba(245,166,35,.03));
+    animation:twglow 2.4s ease-in-out infinite; }
+  .topwin .twhead { font-size:10.5px; letter-spacing:1.2px; color:#f5a623; font-weight:bold; padding:4px 5px 2px; }
+  .topwin .wrow { border-color:transparent; background:transparent; }
+  @keyframes twglow { 0%,100% { box-shadow:0 0 6px rgba(245,166,35,.22); } 50% { box-shadow:0 0 18px rgba(245,166,35,.55); } }
   @keyframes winIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
   .wrow img { width:42px; height:42px; object-fit:contain; background:transparent; border-radius:5px; flex:none; }
   .wrow .noimg42 { width:42px; height:42px; background:#101114; border-radius:5px; color:#555; font-size:9px; display:flex; align-items:center; justify-content:center; flex:none; }
@@ -1004,20 +1010,30 @@ function doUpgrade() {
   });
 }
 
-function renderRecent(list) {
-  const el = document.getElementById('winsFeed');
-  const wins = list.filter(r => r.win);
-  if (!wins.length) { el.innerHTML = '<div style="color:#777; font-size:12px">No wins yet.</div>'; return; }
-  el.innerHTML = wins.map(r => {
-    const shownPct = (r.chance / (1 - HOUSE_EDGE)).toFixed(1); // same simple % as the wheel shows
-    return `<div class="wrow" title="${esc(r.username)} won ${esc(r.target.name)} (${fmt(r.target.value)}) at ${shownPct}% — risked ${fmt(r.inputValue)} | verify: sha256(${r.seed}) = ${r.hash}">
+const CHAT_TTL_MS = 30 * 60 * 1000;     // chat messages disappear after 30 minutes
+const WINS_TTL_MS = 6 * 60 * 60 * 1000; // live wins stay visible for 6 hours
+let topWin = null, lastWinsList = [];
+function winRowHtml(r) {
+  const shownPct = (r.chance / (1 - HOUSE_EDGE)).toFixed(1); // same simple % as the wheel shows
+  return `<div class="wrow" title="${esc(r.username)} won ${esc(r.target.name)} (${fmt(r.target.value)}) at ${shownPct}% — risked ${fmt(r.inputValue)} | verify: sha256(${r.seed}) = ${r.hash}">
       ${r.target.image ? `<img src="${esc(r.target.image)}">` : '<div class="noimg42">no img</div>'}
       <div class="wn">
         <b>${esc(r.target.name)}</b>
         <span style="color:#f5a623; font-weight:bold">${fmt(r.target.value)}</span><br>
         <span style="color:#888"><span class="plink" onclick="openProfile('${esc(r.username)}')">${esc(r.username)}</span> @ ${shownPct}%</span>
       </div>
-    </div>`; }).join('');
+    </div>`;
+}
+function renderRecent(list) {
+  lastWinsList = list || [];
+  const el = document.getElementById('winsFeed');
+  const cutoff = Date.now() - WINS_TTL_MS;
+  const wins = lastWinsList.filter(r => r.win && (r.t || 0) >= cutoff);
+  let html = '';
+  if (topWin && topWin.target) html += `<div class="topwin"><div class="twhead">👑 BIGGEST WIN TODAY</div>${winRowHtml(topWin)}</div>`;
+  if (wins.length) html += wins.map(winRowHtml).join('');
+  if (!html) html = '<div style="color:#777; font-size:12px">No wins yet.</div>';
+  el.innerHTML = html;
 }
 
 /* ---------- popups ---------- */
@@ -1041,6 +1057,7 @@ function sideTab(which) {
 }
 function renderChat() {
   const el = document.getElementById('chatFeed');
+  chatMsgs = chatMsgs.filter(m => !m.t || m.t >= Date.now() - CHAT_TTL_MS); // old messages disappear
   el.innerHTML = chatMsgs.length
     ? chatMsgs.map(m => m.system
         ? `<div class="cmsg sys">${esc(m.text)}</div>`
@@ -1407,6 +1424,11 @@ function connectSocket() {
     if (chatMsgs.length > 50) chatMsgs.shift();
     renderChat();
   });
+  socket.on('topwin', tw => {
+    // same anti-spoiler delay as the live wins feed
+    if (!loadedFeed) { topWin = tw; renderRecent(lastWinsList); }
+    else schedule(() => { topWin = tw; renderRecent(lastWinsList); }, 7100);
+  });
   socket.on('recent', list => {
     // anti-spoiler: new wins only show up ~2s AFTER the spinner's wheel has finished (3.3s spin + 2s)
     if (!loadedFeed) renderRecent(list);
@@ -1418,6 +1440,12 @@ function connectSocket() {
     if (me) { try { setInventory(await api('/api/me')); } catch(e){} }
   });
 }
+
+// age-out timer: expired chat messages and old wins fade away even while the page just sits open
+setInterval(() => {
+  if (chatMsgs.some(m => m.t && m.t < Date.now() - CHAT_TTL_MS)) renderChat();
+  if (lastWinsList.some(r => r.win && (r.t || 0) < Date.now() - WINS_TTL_MS)) renderRecent(lastWinsList);
+}, 60 * 1000);
 
 connectSocket();
 loadTargets();

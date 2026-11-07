@@ -538,6 +538,18 @@ const recentUpgrades = [];
 
 // ---- chat (last 50 messages kept in memory) ----
 const chatHistory = [];
+// ---- feed lifetimes ----
+const CHAT_TTL_MS = 30 * 60 * 1000;        // chat messages disappear after 30 minutes
+const WINS_TTL_MS = 6 * 60 * 60 * 1000;    // live wins stay visible for 6 hours
+const TOPWIN_TTL_MS = 24 * 60 * 60 * 1000; // "biggest win today" resets after 24 hours
+let topWin = null;                         // biggest win (by item value) of the last 24h
+function pruneFeeds() {
+  const now = Date.now();
+  while (chatHistory.length && (chatHistory[0].t || 0) < now - CHAT_TTL_MS) chatHistory.shift();
+  while (recentUpgrades.length && (recentUpgrades[recentUpgrades.length - 1].t || 0) < now - WINS_TTL_MS) recentUpgrades.pop();
+  if (topWin && topWin.t < now - TOPWIN_TTL_MS) { topWin = null; io.emit('topwin', null); }
+}
+setInterval(pruneFeeds, 60 * 1000);
 const lastSpinAt = new Map(); // userId -> time of last spin (server-side anti-spam, can't be bypassed)
 
 const userSockets = {};
@@ -563,6 +575,8 @@ io.on('connection', (socket) => {
         socket.emit('auth_ok', { username: user.username });
       }
     }
+    pruneFeeds();
+    socket.emit('topwin', topWin); // before 'recent' so the pinned card shows instantly on load
     socket.emit('recent', recentUpgrades);
     socket.emit('stats', { totalUpgrades: db.totalUpgrades || 0 });
     socket.emit('chat_history', chatHistory);
@@ -654,6 +668,10 @@ io.on('connection', (socket) => {
     };
     recentUpgrades.unshift(receipt);
     if (recentUpgrades.length > 20) recentUpgrades.pop();
+    if (win && (!topWin || topWin.t < Date.now() - TOPWIN_TTL_MS || target.value > topWin.target.value)) {
+      topWin = receipt;
+      io.emit('topwin', topWin);
+    }
     io.emit('recent', recentUpgrades);
     io.emit('stats', { totalUpgrades: db.totalUpgrades });
     cb({ ok: true, result: receipt });

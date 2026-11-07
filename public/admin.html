@@ -210,11 +210,30 @@ async function loadItems() {
   sel.innerHTML = items.map(it => `<option value="${it.id}">${esc(it.name)} (${fmt(it.value)})</option>`).join('') || '<option>No items yet</option>';
 }
 
+// auto-shrink uploaded pictures in the browser (max 128px, PNG) so huge photos
+// never bloat the database and slow the site down for every visitor
+function shrinkImage(file) {
+  return new Promise(resolve => {
+    if (!file || file.size < 40000) return resolve(file); // already small
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, 128 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.width * scale));
+      c.height = Math.max(1, Math.round(img.height * scale));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(b => resolve(b ? new File([b], (file.name.replace(/\.[^.]+$/,'') || 'img') + '.png', { type:'image/png' }) : file), 'image/png');
+    };
+    img.onerror = () => resolve(file);
+    img.src = URL.createObjectURL(file);
+  });
+}
+
 async function addItem() {
   const fd = new FormData();
   fd.append('name', document.getElementById('newName').value);
   fd.append('value', document.getElementById('newValue').value);
-  const f = document.getElementById('newFile').files[0];
+  const f = await shrinkImage(document.getElementById('newFile').files[0]);
   if (f) fd.append('imageFile', f);
   const url = document.getElementById('newUrl').value.trim();
   if (url) fd.append('imageUrl', url);
@@ -228,7 +247,7 @@ async function saveItem(id) {
   const fd = new FormData();
   fd.append('name', document.getElementById('name-'+id).value);
   fd.append('value', document.getElementById('val-'+id).value);
-  const f = document.getElementById('file-'+id).files[0];
+  const f = await shrinkImage(document.getElementById('file-'+id).files[0]);
   if (f) fd.append('imageFile', f);
   const url = document.getElementById('url-'+id).value.trim();
   if (url) fd.append('imageUrl', url);

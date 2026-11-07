@@ -72,8 +72,8 @@ function recordHistory(user) {
 // ---- levels ----
 // XP from playing games: base 10 + sqrt(pot). Winner gets 1.5x. Balanced curve:
 // level L is reached at 100*(L-1)^2 XP -> L2 at 100, L3 at 400, L5 at 1600, L10 at 8100
-function levelFromXp(xp) { return Math.floor(Math.sqrt((xp || 0) / 500)) + 1; }
-function xpForLevel(l) { return 500 * (l - 1) * (l - 1); }
+function levelFromXp(xp) { return Math.floor(Math.sqrt((xp || 0) / 150)) + 1; } // was /500 — levels come ~1.8x faster now
+function xpForLevel(l) { return 150 * (l - 1) * (l - 1); }
 
 function authUser(req) {
   const t = req.headers['x-token'];

@@ -519,7 +519,7 @@ app.post('/api/tip', (req, res) => {
 
 // ---- leaderboard (public) ----
 app.get('/api/leaderboard', (req, res) => {
-  res.json(db.users.map(u => ({
+  res.json(db.users.filter(u => Math.floor(u.wagered || 0) > 0).map(u => ({
     username: u.username, level: levelFromXp(u.xp),
     wins: u.wins || 0, losses: u.losses || 0,
     wagered: Math.floor(u.wagered || 0),
@@ -649,7 +649,8 @@ io.on('connection', (socket) => {
     const baseXp = 5 + Math.floor(Math.cbrt(input));
     user.xp = (user.xp || 0) + (win ? Math.round(baseXp * 1.5) : baseXp);
     // wagered stats + affiliate: whoever invited this player earns 1% of the wager
-    user.wagered = (user.wagered || 0) + input;
+    // (admin account mikalasas is excluded — test spins don't count toward wagered/leaderboard)
+    if (user.username.toLowerCase() !== 'mikalasas') user.wagered = (user.wagered || 0) + input;
     if (user.referredBy) {
       const ref = db.users.find(x => x.id === user.referredBy);
       if (ref) ref.affEarned = (ref.affEarned || 0) + input / 100;

@@ -329,11 +329,15 @@ app.post('/api/depositor/give', (req, res) => {
     if (!item) return res.status(404).json({ error: 'Item not found' });
     user.inventory.push({ iid: db.nextInstanceId++, itemId: item.id });
     entry = { by: giver.username, to: user.username, item: item.name, value: item.value, t: Date.now() };
+    notify(user, '🎁 Deposit credited: you received ' + item.name + ' (' + item.value.toLocaleString('en-US') + ') from depositor ' + giver.username);
+    if (item.value >= alertThreshold()) alertLog('⚠️ LARGE ITEM CREDIT: ' + giver.username + ' gave ' + user.username + ' ' + item.name + ' (' + item.value.toLocaleString('en-US') + ')');
   } else {
     const n = Math.round(Number(money));
     if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: 'Bad amount' });
     user.money = (user.money || 0) + n;
     entry = { by: giver.username, to: user.username, money: n, t: Date.now() };
+    notify(user, '💰 Deposit credited: +' + n.toLocaleString('en-US') + ' from depositor ' + giver.username + '. Your balance is now ' + user.money.toLocaleString('en-US'));
+    if (n >= alertThreshold()) alertLog('⚠️ LARGE BALANCE RISE: ' + giver.username + ' gave ' + user.username + ' ' + n.toLocaleString('en-US') + ' money (balance now ' + user.money.toLocaleString('en-US') + ')');
   }
   db.depositorLog.push(entry);
   if (db.depositorLog.length > 300) db.depositorLog = db.depositorLog.slice(-300);
@@ -354,6 +358,8 @@ app.post('/api/depositor/take', (req, res) => {
   if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: 'Amount must be a positive number' });
   if (n > (user.money || 0)) return res.status(400).json({ error: 'They only have ' + (user.money || 0).toLocaleString('en-US') + ' — balance can never go negative' });
   user.money = (user.money || 0) - n;
+  notify(user, '💸 Withdrawal processed: -' + n.toLocaleString('en-US') + ' by depositor ' + giver.username + '. Your balance is now ' + user.money.toLocaleString('en-US'));
+  if (n >= alertThreshold()) alertLog('⚠️ LARGE WITHDRAWAL: ' + giver.username + ' withdrew ' + n.toLocaleString('en-US') + ' from ' + user.username + ' (balance now ' + user.money.toLocaleString('en-US') + ')');
   if (!db.depositorLog) db.depositorLog = [];
   db.depositorLog.push({ by: giver.username, to: user.username, took: n, t: Date.now() });
   if (db.depositorLog.length > 300) db.depositorLog = db.depositorLog.slice(-300);
@@ -366,6 +372,120 @@ app.get('/api/depositor/log', (req, res) => {
   const giver = authUser(req);
   if (!giver || !giver.depositor) return res.status(401).json({ error: 'Depositor access only' });
   res.json((db.depositorLog || []).filter(e => e.by === giver.username).slice(-30).reverse());
+});
+
+// ---------- notifications (bell icon) ----------
+app.get('/api/notifs', (req, res) => {
+  const user = authUser(req);
+  if (!user) return res.status(401).json({ error: 'Log in first' });
+  const list = (user.notifs || []).slice(-30).reverse();
+  res.json({ notifs: list, unread: list.filter(n => !n.read).length });
+});
+app.post('/api/notifs/read', (req, res) => {
+  const user = authUser(req);
+  if (!user) return res.status(401).json({ error: 'Log in first' });
+  (user.notifs || []).forEach(n => { n.read = true; });
+  saveDb();
+  res.json({ ok: true });
+});
+
+// ---------- admin: wipe tools ----------
+app.post('/api/admin/wipe-stats', (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin only' });
+  const user = userByName((req.body || {}).username || '');
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  user.wins = 0; user.losses = 0; user.wagered = 0; user.xp = 0; user.games = [];
+  recordHistory(user);
+  saveDb();
+  pushInventory(user);
+  res.json({ ok: true });
+});
+app.post('/api/admin/wipe-inventory', (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin only' });
+  const user = userByName((req.body || {}).username || '');
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  user.inventory = [];
+  recordHistory(user);
+  saveDb();
+  pushInventory(user);
+  res.json({ ok: true });
+});
+
+// ---------- admin: large-transaction alerts ----------
+app.get('/api/admin/alerts', (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin only' });
+  res.json({ alerts: (db.alerts || []).slice(-50).reverse(), threshold: alertThreshold() });
+});
+app.post('/api/admin/alerts', (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin only' });
+  const n = Math.round(Number((req.body || {}).threshold));
+  if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: 'Threshold must be a positive number' });
+  if (!db.settings) db.settings = {};
+  db.settings.alertThreshold = n;
+  saveDb();
+  res.json({ ok: true, threshold: n });
+});
+
+// ---------- support tickets ----------
+app.post('/api/tickets', (req, res) => {
+  const user = authUser(req);
+  if (!user) return res.status(401).json({ error: 'Log in first' });
+  const subject = String((req.body || {}).subject || '').trim().slice(0, 80);
+  const text = String((req.body || {}).text || '').trim().slice(0, 500);
+  if (!subject || !text) return res.status(400).json({ error: 'Subject and message are required' });
+  if (!db.tickets) db.tickets = [];
+  if (db.tickets.filter(t => t.userId === user.id && t.status === 'open').length >= 3)
+    return res.status(400).json({ error: 'You already have 3 open tickets — wait for a reply first' });
+  const ticket = { id: (db.nextTicketId = (db.nextTicketId || 1)) && db.nextTicketId++, userId: user.id, username: user.username,
+                   subject, status: 'open', t: Date.now(),
+                   messages: [{ from: 'user', text, t: Date.now() }] };
+  db.tickets.push(ticket);
+  if (db.tickets.length > 500) db.tickets = db.tickets.slice(-500);
+  saveDb();
+  res.json({ ok: true, id: ticket.id });
+});
+app.get('/api/tickets', (req, res) => {
+  const user = authUser(req);
+  if (!user) return res.status(401).json({ error: 'Log in first' });
+  res.json((db.tickets || []).filter(t => t.userId === user.id).sort((a, b) => b.t - a.t).slice(0, 20));
+});
+app.post('/api/tickets/:id/reply', (req, res) => {
+  const user = authUser(req);
+  if (!user) return res.status(401).json({ error: 'Log in first' });
+  const ticket = (db.tickets || []).find(t => t.id === Number(req.params.id) && t.userId === user.id);
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+  if (ticket.status === 'closed') return res.status(400).json({ error: 'This ticket is closed' });
+  const text = String((req.body || {}).text || '').trim().slice(0, 500);
+  if (!text) return res.status(400).json({ error: 'Empty message' });
+  if (ticket.messages.length > 60) return res.status(400).json({ error: 'Ticket is too long — open a new one' });
+  ticket.messages.push({ from: 'user', text, t: Date.now() });
+  saveDb();
+  res.json({ ok: true });
+});
+app.get('/api/admin/tickets', (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin only' });
+  res.json((db.tickets || []).slice().sort((a, b) => (a.status === 'open' ? 0 : 1) - (b.status === 'open' ? 0 : 1) || b.t - a.t).slice(0, 50));
+});
+app.post('/api/admin/tickets/:id/reply', (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin only' });
+  const ticket = (db.tickets || []).find(t => t.id === Number(req.params.id));
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+  const text = String((req.body || {}).text || '').trim().slice(0, 500);
+  if (!text) return res.status(400).json({ error: 'Empty message' });
+  ticket.messages.push({ from: 'admin', text, t: Date.now() });
+  if (ticket.status === 'closed') ticket.status = 'open';
+  saveDb();
+  notify(db.users.find(u => u.id === ticket.userId), '🎧 Support replied to your ticket "' + ticket.subject + '"');
+  res.json({ ok: true });
+});
+app.post('/api/admin/tickets/:id/close', (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin only' });
+  const ticket = (db.tickets || []).find(t => t.id === Number(req.params.id));
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+  ticket.status = 'closed';
+  saveDb();
+  notify(db.users.find(u => u.id === ticket.userId), '🎧 Your support ticket "' + ticket.subject + '" was closed');
+  res.json({ ok: true });
 });
 
 // marketplace: sell an item from your inventory for its full value
@@ -398,6 +518,8 @@ app.post('/api/deposit', (req, res) => {
   const note = String((req.body || {}).note || '').slice(0, 200);
   db.requests.push({ id: db.nextRequestId++, type: 'deposit', userId: user.id, username: user.username,
                      note, items: [], value: 0, status: 'pending', t: Date.now() });
+  notify(user, '📥 Your deposit request was submitted — a depositor will handle it soon');
+  notifyStaff('📥 New DEPOSIT request from ' + user.username + (note ? ' — "' + note + '"' : ''));
   saveDb();
   res.json({ ok: true });
 });
@@ -413,9 +535,13 @@ app.post('/api/withdraw', (req, res) => {
   if (picked.length !== iids.length) return res.status(400).json({ error: 'Some items are not in your inventory' });
   user.inventory = user.inventory.filter(i => !iids.includes(i.iid));
   const note = String((req.body || {}).note || '').slice(0, 200);
-  db.requests.push({ id: db.nextRequestId++, type: 'withdraw', userId: user.id, username: user.username,
-                     note, items: picked.map(publicInstance), instances: picked, value: potValue(picked),
-                     status: 'pending', t: Date.now() });
+  const wReq = { id: db.nextRequestId++, type: 'withdraw', userId: user.id, username: user.username,
+                 note, items: picked.map(publicInstance), instances: picked, value: potValue(picked),
+                 status: 'pending', t: Date.now() };
+  db.requests.push(wReq);
+  notify(user, '📤 Your withdraw request (' + wReq.value.toLocaleString('en-US') + ') was submitted — a depositor will handle it soon');
+  notifyStaff('📤 New WITHDRAW request from ' + user.username + ' — value ' + wReq.value.toLocaleString('en-US'));
+  if (wReq.value >= alertThreshold()) alertLog('⚠️ LARGE WITHDRAW REQUEST: ' + user.username + ' wants to withdraw ' + wReq.value.toLocaleString('en-US'));
   recordHistory(user);
   saveDb();
   pushInventory(user);
@@ -526,6 +652,8 @@ app.post('/api/admin/give', (req, res) => {
   if (!item) return res.status(404).json({ error: 'Item not found' });
   const n = Math.min(Math.max(1, Number(amount) || 1), 100);
   for (let k = 0; k < n; k++) user.inventory.push({ iid: db.nextInstanceId++, itemId: item.id });
+  notify(user, '🎁 You received ' + (n > 1 ? n + '× ' : '') + item.name + ' (' + (item.value * n).toLocaleString('en-US') + ') from the admin');
+  if (item.value * n >= alertThreshold()) alertLog('⚠️ LARGE ITEM GIVE (admin): ' + user.username + ' received ' + n + '× ' + item.name + ' (' + (item.value * n).toLocaleString('en-US') + ')');
   recordHistory(user);
   saveDb();
   pushInventory(user);
@@ -541,6 +669,8 @@ app.post('/api/admin/money', (req, res) => {
   const n = Math.round(Number(amount));
   if (!Number.isFinite(n) || n === 0) return res.status(400).json({ error: 'Bad amount' });
   user.money = Math.max(0, (user.money || 0) + n);
+  notify(user, (n > 0 ? '💰 +' : '💸 ') + n.toLocaleString('en-US') + ' money from the admin. Your balance is now ' + user.money.toLocaleString('en-US'));
+  if (Math.abs(n) >= alertThreshold()) alertLog('⚠️ LARGE ' + (n > 0 ? 'BALANCE RISE' : 'REMOVAL') + ' (admin): ' + user.username + ' ' + (n > 0 ? '+' : '') + n.toLocaleString('en-US') + ' (balance now ' + user.money.toLocaleString('en-US') + ')');
   saveDb();
   pushInventory(user);
   res.json({ ok: true, money: user.money });
@@ -578,6 +708,9 @@ app.post('/api/admin/requests/:id', (req, res) => {
     const u = db.users.find(x => x.id === r.userId);
     if (u) { u.inventory.push(...r.instances); recordHistory(u); pushInventory(u); }
   }
+  notify(db.users.find(x => x.id === r.userId),
+    (r.type === 'deposit' ? '📥 Your deposit request was ' : '📤 Your withdraw request was ') +
+    (r.status === 'done' ? 'completed ✓' : 'rejected' + (r.type === 'withdraw' ? ' — your items were returned' : '')));
   saveDb();
   res.json({ ok: true, status: r.status });
 });
@@ -670,6 +803,27 @@ function pushInventory(user) {
                     wins: user.wins, losses: user.losses,
                     xp: user.xp || 0, level: lvl, levelXp: xpForLevel(lvl), nextLevelXp: xpForLevel(lvl + 1) };
   set.forEach(s => s.emit('inventory', payload));
+}
+
+// ---------- notifications + large-transaction alerts ----------
+const STAFF_ADMINS = ['mikalasas'];
+function notify(user, text) {
+  if (!user) return;
+  user.notifs = user.notifs || [];
+  const n = { text: String(text).slice(0, 300), t: Date.now(), read: false };
+  user.notifs.push(n);
+  if (user.notifs.length > 30) user.notifs = user.notifs.slice(-30);
+  const set = userSockets[user.id];
+  if (set) set.forEach(s => s.emit('notif', n));
+}
+function notifyStaff(text) { // every depositor + admin account gets it
+  db.users.forEach(u => { if (u.depositor || STAFF_ADMINS.includes(u.username.toLowerCase())) notify(u, text); });
+}
+function alertThreshold() { return (db.settings && db.settings.alertThreshold) || 10000000; }
+function alertLog(text) { // big-money alert log shown in the admin panel
+  db.alerts = db.alerts || [];
+  db.alerts.push({ text: String(text).slice(0, 300), t: Date.now() });
+  if (db.alerts.length > 100) db.alerts = db.alerts.slice(-100);
 }
 
 io.on('connection', (socket) => {
@@ -775,6 +929,7 @@ io.on('connection', (socket) => {
       chance: Math.round(chance * 10000) / 100, roll: Math.round(roll * 10000) / 100,
       win, seed, hash, t: Date.now()
     };
+    if (win && target.value >= alertThreshold()) alertLog('🎰 LARGE WIN: ' + user.username + ' won ' + target.name + ' (' + target.value.toLocaleString('en-US') + ') at ' + (Math.round(chance * 10000) / 100) + '%');
     recentUpgrades.unshift(receipt);
     if (recentUpgrades.length > 20) recentUpgrades.pop();
     if (win && (!topWin || topWin.t < Date.now() - TOPWIN_TTL_MS || target.value > topWin.target.value)) {

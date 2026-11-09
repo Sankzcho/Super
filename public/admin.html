@@ -119,6 +119,35 @@
   </div>
 
   <div class="panel">
+    <h3>Wipe tools</h3>
+    <div style="color:#888; font-size:13px; margin-bottom:8px">Wipe stats resets wins/losses/wagered/level to zero. Wipe inventory removes ALL their items (money stays). Both are permanent!</div>
+    <div class="row">
+      <input id="wipeUser" placeholder="Username">
+      <button onclick="wipeStats()">Wipe stats</button>
+      <button onclick="wipeInv()" style="background:#7a2727">Wipe inventory</button>
+    </div>
+    <div class="msg" id="wipeMsg"></div>
+  </div>
+
+  <div class="panel">
+    <h3>⚠️ Large-transaction alerts</h3>
+    <div style="color:#888; font-size:13px; margin-bottom:8px">Anything at or above this amount gets logged here: big depositor gives/withdrawals, big admin gives, big withdraw requests, big wins.</div>
+    <div class="row" style="margin-bottom:8px">
+      <span>Alert threshold:</span>
+      <input id="alertThresh" type="number" min="1" style="width:140px">
+      <button class="green" onclick="saveThresh()">Save</button>
+      <span class="msg" id="threshMsg"></span>
+    </div>
+    <div id="alertList" style="font-size:13px; color:#e0b06a"></div>
+  </div>
+
+  <div class="panel">
+    <h3>🎧 Support tickets</h3>
+    <div id="ticketList" style="font-size:13px"></div>
+    <div class="msg" id="ticketMsg"></div>
+  </div>
+
+  <div class="panel">
     <h3>Users</h3>
     <table id="usersTable"><tr><th>Username</th><th>Items</th><th>Total value</th><th>Money</th><th>W/L</th></tr></table>
   </div>
@@ -140,7 +169,7 @@ async function checkPass() {
 function showMain() {
   document.getElementById('adminLogin').style.display = 'none';
   document.getElementById('adminMain').style.display = '';
-  loadItems(); loadUsers(); loadPayouts(); loadLinks(); loadRequests(); loadDepositors();
+  loadItems(); loadUsers(); loadPayouts(); loadLinks(); loadRequests(); loadDepositors(); loadAlerts(); loadTickets();
 }
 
 async function loadLinks() {
@@ -175,6 +204,66 @@ async function depoSet(username, action) {
 }
 function depoAdd() { depoSet(document.getElementById('depoUser').value.trim(), 'add'); }
 function depoRemove(u) { depoSet(u, 'remove'); }
+
+async function wipeStats() {
+  const u = document.getElementById('wipeUser').value.trim();
+  if (!u || !confirm('Really wipe ALL statistics of "' + u + '"? This cannot be undone.')) return;
+  const r = await fetch('/api/admin/wipe-stats', { method:'POST', headers:{'Content-Type':'application/json','x-admin-password':pass}, body: JSON.stringify({ username: u }) });
+  const j = await r.json();
+  document.getElementById('wipeMsg').textContent = r.ok ? 'Stats of ' + u + ' wiped.' : (j.error || 'Failed');
+  if (r.ok) loadUsers();
+}
+async function wipeInv() {
+  const u = document.getElementById('wipeUser').value.trim();
+  if (!u || !confirm('Really wipe the ENTIRE inventory of "' + u + '"? This cannot be undone.')) return;
+  const r = await fetch('/api/admin/wipe-inventory', { method:'POST', headers:{'Content-Type':'application/json','x-admin-password':pass}, body: JSON.stringify({ username: u }) });
+  const j = await r.json();
+  document.getElementById('wipeMsg').textContent = r.ok ? 'Inventory of ' + u + ' wiped.' : (j.error || 'Failed');
+  if (r.ok) loadUsers();
+}
+
+async function loadAlerts() {
+  const r = await fetch('/api/admin/alerts', { headers:{'x-admin-password':pass} });
+  if (!r.ok) return;
+  const j = await r.json();
+  document.getElementById('alertThresh').value = j.threshold;
+  document.getElementById('alertList').innerHTML = j.alerts.length
+    ? j.alerts.map(a => `<div style="margin-bottom:4px">${esc(a.text)} <span style="color:#666">· ${new Date(a.t).toLocaleString()}</span></div>`).join('')
+    : '<div style="color:#777">No alerts yet.</div>';
+}
+async function saveThresh() {
+  const r = await fetch('/api/admin/alerts', { method:'POST', headers:{'Content-Type':'application/json','x-admin-password':pass}, body: JSON.stringify({ threshold: Number(document.getElementById('alertThresh').value) }) });
+  const j = await r.json();
+  document.getElementById('threshMsg').textContent = r.ok ? 'Saved.' : (j.error || 'Failed');
+  if (r.ok) loadAlerts();
+}
+
+async function loadTickets() {
+  const r = await fetch('/api/admin/tickets', { headers:{'x-admin-password':pass} });
+  if (!r.ok) return;
+  const list = await r.json();
+  document.getElementById('ticketList').innerHTML = list.length ? list.map(t => `
+    <div style="border:1px solid #333; border-radius:8px; padding:8px 10px; margin-bottom:8px; ${t.status === 'open' ? '' : 'opacity:.55'}">
+      <b>${esc(t.subject)}</b> — <b style="color:#8ab4f8">${esc(t.username)}</b>
+      <span style="float:right; color:${t.status === 'open' ? '#2ecc71' : '#888'}">${t.status}</span>
+      <div style="margin:6px 0">${t.messages.map(m => `<div style="margin-bottom:3px"><b style="color:${m.from === 'admin' ? '#f5a623' : '#9ab'}">${m.from === 'admin' ? 'You' : esc(t.username)}</b>: ${esc(m.text)} <span style="color:#666; font-size:11px">· ${new Date(m.t).toLocaleString()}</span></div>`).join('')}</div>
+      ${t.status === 'open' ? `<div class="row">
+        <input id="tr${t.id}" placeholder="Reply..." style="flex:1">
+        <button class="green" onclick="tReply(${t.id})">Reply</button>
+        <button onclick="tClose(${t.id})">Close</button>
+      </div>` : ''}
+    </div>`).join('') : '<div style="color:#777">No tickets.</div>';
+}
+async function tReply(id) {
+  const text = document.getElementById('tr' + id).value.trim();
+  if (!text) return;
+  const r = await fetch('/api/admin/tickets/' + id + '/reply', { method:'POST', headers:{'Content-Type':'application/json','x-admin-password':pass}, body: JSON.stringify({ text }) });
+  if (r.ok) loadTickets(); else document.getElementById('ticketMsg').textContent = 'Reply failed';
+}
+async function tClose(id) {
+  const r = await fetch('/api/admin/tickets/' + id + '/close', { method:'POST', headers:{'Content-Type':'application/json','x-admin-password':pass} });
+  if (r.ok) loadTickets();
+}
 
 async function saveLinks() {
   const r = await fetch('/api/admin/links', { method:'POST',

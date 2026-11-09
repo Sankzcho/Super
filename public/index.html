@@ -64,6 +64,26 @@
           border:1px solid #262933; border-radius:8px; padding:8px; margin-bottom:8px; font-size:12px;
           transition:border-color .15s; animation:winIn .35s ease; }
   .wrow:hover { border-color:rgba(245,166,35,.45); }
+  /* notifications */
+  #notifBadge { display:none; position:absolute; top:-6px; right:-6px; background:#e74c3c; color:#fff; font-size:10px;
+    font-weight:bold; min-width:16px; height:16px; line-height:16px; border-radius:8px; padding:0 3px; }
+  #notifPanel { display:none; position:fixed; top:58px; right:16px; z-index:60; width:330px; max-height:420px; overflow-y:auto;
+    background:#15171d; border:1px solid #2a2d35; border-radius:12px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.5); }
+  .nrow { font-size:12.5px; color:#c9ccd4; border-bottom:1px solid #22252c; padding:7px 2px; }
+  .nrow .nt { color:#666; font-size:11px; }
+  .nrow.unread { color:#fff; background:rgba(245,166,35,.06); }
+  /* support widget */
+  #supBtn { position:fixed; bottom:18px; right:18px; z-index:60; width:52px; height:52px; border-radius:50%;
+    background:linear-gradient(180deg,#f5a623,#d88c0f); color:#111; font-size:23px; padding:0; border:0;
+    box-shadow:0 6px 18px rgba(0,0,0,.45); }
+  #supPopup { display:none; position:fixed; bottom:80px; right:18px; z-index:60; width:340px; max-height:480px; overflow-y:auto;
+    background:#15171d; border:1px solid #2a2d35; border-radius:12px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.5); }
+  #supPopup input, #supPopup textarea { width:100%; box-sizing:border-box; margin-bottom:8px; }
+  #supPopup textarea { background:#101114; border:1px solid #2a2d33; color:#eee; border-radius:8px; padding:8px; min-height:64px; resize:vertical; font-family:inherit; font-size:13px; }
+  .trow { border:1px solid #262933; border-radius:9px; padding:8px 10px; margin-bottom:7px; cursor:pointer; font-size:13px; }
+  .trow:hover { border-color:rgba(245,166,35,.5); }
+  .tmsg { font-size:12.5px; padding:6px 8px; border-radius:8px; margin-bottom:6px; background:#1b1e25; }
+  .tmsg.fromadmin { background:#241e12; border:1px solid rgba(245,166,35,.35); }
   .topwin { border:1px solid rgba(245,166,35,.8); border-radius:10px; margin:8px 8px 10px; padding:3px 5px 5px;
     background:linear-gradient(160deg, rgba(245,166,35,.16), rgba(245,166,35,.03));
     animation:twglow 2.4s ease-in-out infinite; }
@@ -234,6 +254,16 @@
     #layout { flex-direction:column; }
     #winsPanel { width:100%; min-width:0; height:300px; position:static; border-right:0; border-bottom:1px solid #262933; }
   }
+  /* compact mode — squished spacing site-wide (kept last so it wins) */
+  .container { padding:9px 13px; }
+  .panel { padding:9px 11px; border-radius:10px; }
+  h3 { margin:0 0 8px 0; font-size:12px; }
+  header { padding:5px 12px; gap:8px; }
+  .stat { padding:3px 8px; font-size:12px; }
+  button { padding:6px 10px; font-size:13px; }
+  #winsPanel { width:252px; min-width:252px; }
+  #supBtn { width:42px; height:42px; font-size:18px; bottom:14px; right:14px; }
+  #supPopup { bottom:64px; right:14px; width:320px; }
 </style>
 </head>
 <body>
@@ -279,6 +309,7 @@
         <span class="stat"><span class="lvl" id="myLvl">1</span> <span class="plink" id="whoami" onclick="openProfile(me.username)"></span></span>
         <span class="stat">💰 Money: <span id="myMoney" style="color:#f5a623">0</span></span>
         <span class="stat">Inventory: <span id="totalVal">0</span></span>
+        <button class="gray" id="notifBtn" style="position:relative" onclick="toggleNotifs()">🔔<span id="notifBadge">0</span></button>
       </span>
       <button class="gold" id="verifyBtn" style="display:none" onclick="openVerify()">🔗 VERIFY ROBLOX</button>
       <span class="spacer"></span>
@@ -290,7 +321,24 @@
       <a href="/admin.html" id="adminLink" style="display:none">Admin panel</a>
       <button class="gray" id="logoutBtn" style="display:none" onclick="logout()">Logout</button>
     </header>
+    <div class="container" style="padding:6px 24px 0; display:flex; align-items:center; justify-content:center; gap:7px; color:#777; font-size:12px">
+      <img src="/favicon.png" style="width:16px; height:16px; border-radius:3px" alt="">
+      <span><b style="color:#999">AnomicUpgrader is an arcade.</b> No real cash is used, deposited or paid out — everything here is virtual, just for fun.</span>
+    </div>
     <div class="container" style="padding:10px 24px 0"><div class="msg" id="topMsg"></div></div>
+
+    <!-- NOTIFICATIONS DROPDOWN -->
+    <div id="notifPanel">
+      <h3 style="margin:0 0 10px"><span>🔔 Notifications</span> <span class="x" onclick="toggleNotifs()">&#10005;</span></h3>
+      <div id="notifList"></div>
+    </div>
+
+    <!-- SUPPORT WIDGET (floating) -->
+    <button id="supBtn" onclick="toggleSupport()" title="Support">🎧</button>
+    <div id="supPopup">
+      <h3 style="margin:0 0 10px"><span>🎧 Support</span> <span class="x" onclick="toggleSupport()">&#10005;</span></h3>
+      <div id="supBody"></div>
+    </div>
 
     <div class="container" id="main">
       <div id="verifyBanner" style="display:none">
@@ -646,6 +694,91 @@ async function resetConfirm() {
   } catch(e) { m.textContent = e.message; }
 }
 
+/* ---------- notifications (bell) ---------- */
+let notifCache = [], notifUnread = 0, notifOpen = false;
+function renderNotifBadge() {
+  const b = document.getElementById('notifBadge');
+  b.style.display = notifUnread > 0 ? '' : 'none';
+  b.textContent = notifUnread > 9 ? '9+' : notifUnread;
+}
+async function loadNotifs() {
+  if (!me) return;
+  try { const j = await api('/api/notifs'); notifCache = j.notifs; notifUnread = j.unread; renderNotifBadge(); } catch(e) {}
+}
+function renderNotifs() {
+  document.getElementById('notifList').innerHTML = notifCache.length
+    ? notifCache.map(n => `<div class="nrow${n.read ? '' : ' unread'}">${esc(n.text)}<br><span class="nt">${new Date(n.t).toLocaleString()}</span></div>`).join('')
+    : '<div style="color:#777; font-size:13px">No notifications yet.</div>';
+}
+async function toggleNotifs() {
+  notifOpen = !notifOpen;
+  document.getElementById('notifPanel').style.display = notifOpen ? '' : 'none';
+  if (notifOpen) {
+    renderNotifs();
+    if (notifUnread > 0) { try { await api('/api/notifs/read', { method:'POST' }); } catch(e) {} notifUnread = 0; notifCache.forEach(n => n.read = true); renderNotifBadge(); }
+  }
+}
+
+/* ---------- support tickets (floating 🎧 widget) ---------- */
+let supOpen = false, supTickets = [];
+function toggleSupport() {
+  supOpen = !supOpen;
+  document.getElementById('supPopup').style.display = supOpen ? 'block' : 'none';
+  if (supOpen) supList();
+}
+async function supList() {
+  const el = document.getElementById('supBody');
+  if (!me) { el.innerHTML = '<div style="color:#888; font-size:13px">Log in to contact support.</div>'; return; }
+  try { supTickets = await api('/api/tickets'); } catch(e) { el.innerHTML = '<div class="msg">' + esc(e.message) + '</div>'; return; }
+  el.innerHTML = `
+    <button class="gold" style="width:100%; margin-bottom:10px" onclick="supNewForm()">+ NEW TICKET</button>
+    ${supTickets.length ? supTickets.map(t => `
+      <div class="trow" onclick="supView(${t.id})">
+        <b>${esc(t.subject)}</b>
+        <span style="float:right; color:${t.status === 'open' ? '#2ecc71' : '#888'}">${t.status}</span><br>
+        <span style="color:#777; font-size:11.5px">${t.messages.length} message${t.messages.length > 1 ? 's' : ''} · ${new Date(t.t).toLocaleDateString()}</span>
+      </div>`).join('') : '<div style="color:#777; font-size:13px">No tickets yet — need help? Open one!</div>'}`;
+}
+function supNewForm() {
+  document.getElementById('supBody').innerHTML = `
+    <input id="supSubj" maxlength="80" placeholder="Subject (e.g. My deposit didn't arrive)">
+    <textarea id="supText" maxlength="500" placeholder="Describe your problem..."></textarea>
+    <div style="display:flex; gap:8px">
+      <button class="gold" style="flex:1" onclick="supCreate()">SEND</button>
+      <button class="gray" onclick="supList()">Back</button>
+    </div>
+    <div class="msg" id="supMsg" style="margin-top:6px"></div>`;
+}
+async function supCreate() {
+  const m = document.getElementById('supMsg');
+  try {
+    await api('/api/tickets', { method:'POST', body: JSON.stringify({ subject: document.getElementById('supSubj').value.trim(), text: document.getElementById('supText').value.trim() }) });
+    supList();
+  } catch(e) { m.textContent = e.message; }
+}
+function supView(id) {
+  const t = supTickets.find(x => x.id === id);
+  if (!t) return;
+  document.getElementById('supBody').innerHTML = `
+    <div style="margin-bottom:8px"><b>${esc(t.subject)}</b> <span style="color:${t.status === 'open' ? '#2ecc71' : '#888'}; font-size:12px">${t.status}</span></div>
+    ${t.messages.map(mm => `<div class="tmsg${mm.from === 'admin' ? ' fromadmin' : ''}"><b style="color:${mm.from === 'admin' ? '#f5a623' : '#9ab'}">${mm.from === 'admin' ? '🎧 Support' : 'You'}</b>: ${esc(mm.text)}<br><span style="color:#666; font-size:10.5px">${new Date(mm.t).toLocaleString()}</span></div>`).join('')}
+    ${t.status === 'open' ? `
+      <textarea id="supReplyText" maxlength="500" placeholder="Write a reply..."></textarea>
+      <div style="display:flex; gap:8px">
+        <button class="gold" style="flex:1" onclick="supReply(${t.id})">REPLY</button>
+        <button class="gray" onclick="supList()">Back</button>
+      </div>` : '<button class="gray" style="width:100%" onclick="supList()">Back</button>'}
+    <div class="msg" id="supMsg" style="margin-top:6px"></div>`;
+}
+async function supReply(id) {
+  const m = document.getElementById('supMsg');
+  try {
+    await api('/api/tickets/' + id + '/reply', { method:'POST', body: JSON.stringify({ text: document.getElementById('supReplyText').value.trim() }) });
+    supTickets = await api('/api/tickets');
+    supView(id);
+  } catch(e) { m.textContent = e.message; }
+}
+
 /* ---------- depositor panel (staff picked by the admin) ---------- */
 async function openDepositor() {
   if (!me || !me.depositor) return;
@@ -714,6 +847,7 @@ async function loadMe() {
   const ADMIN_USERS = ['mikalasas'];
   if (ADMIN_USERS.includes(me.username.toLowerCase())) document.getElementById('adminLink').style.display = '';
   document.getElementById('depLink').style.display = me.depositor ? '' : 'none';
+  loadNotifs();
   setInventory(me);
   updateVerifyUI();
   if (socket) socket.emit('auth', token);
@@ -1555,6 +1689,11 @@ function connectSocket() {
     chatMsgs.push(m);
     if (chatMsgs.length > 50) chatMsgs.shift();
     renderChat();
+  });
+  socket.on('notif', n => {
+    notifCache.unshift(n); if (notifCache.length > 30) notifCache.pop();
+    if (notifOpen) { renderNotifs(); }
+    else { notifUnread++; renderNotifBadge(); }
   });
   socket.on('topwin', tw => {
     // same anti-spoiler delay as the live wins feed

@@ -64,14 +64,19 @@
           border:1px solid #262933; border-radius:8px; padding:8px; margin-bottom:8px; font-size:12px;
           transition:border-color .15s; animation:winIn .35s ease; }
   .wrow:hover { border-color:rgba(245,166,35,.45); }
-  /* notifications */
-  #notifBadge { display:none; position:absolute; top:-6px; right:-6px; background:#e74c3c; color:#fff; font-size:10px;
-    font-weight:bold; min-width:16px; height:16px; line-height:16px; border-radius:8px; padding:0 3px; }
-  #notifPanel { display:none; position:fixed; top:58px; right:16px; z-index:60; width:330px; max-height:420px; overflow-y:auto;
-    background:#15171d; border:1px solid #2a2d35; border-radius:12px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.5); }
-  .nrow { font-size:12.5px; color:#c9ccd4; border-bottom:1px solid #22252c; padding:7px 2px; }
-  .nrow .nt { color:#666; font-size:11px; }
-  .nrow.unread { color:#fff; background:rgba(245,166,35,.06); }
+  /* deposit/withdraw request popup */
+  #dwrOverlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.78); z-index:70; }
+  #dwrBox { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:71; width:min(430px, 92vw);
+    background:#15171d; border:1px solid #f5a623; border-radius:14px; padding:18px 20px;
+    box-shadow:0 0 34px rgba(245,166,35,.25); }
+  #dwrBox h2 { margin:0 0 10px; font-size:16px; }
+  .dwrline { font-size:13.5px; color:#c9ccd4; margin-bottom:8px; }
+  .dwrlink { display:block; background:#101114; border:1px solid #2a2d33; border-radius:8px; padding:9px 11px;
+    margin:8px 0; color:#4da3ff; word-break:break-all; font-size:13px; }
+  /* staff alert toast */
+  #staffToast { display:none; position:fixed; top:66px; left:50%; transform:translateX(-50%); z-index:65;
+    background:#241e12; border:1px solid #f5a623; color:#ffd98a; border-radius:10px; padding:10px 16px;
+    font-size:13.5px; box-shadow:0 8px 24px rgba(0,0,0,.5); }
   /* support widget */
   #supBtn { position:fixed; bottom:18px; right:18px; z-index:60; width:52px; height:52px; border-radius:50%;
     background:linear-gradient(180deg,#f5a623,#d88c0f); color:#111; font-size:23px; padding:0; border:0;
@@ -309,7 +314,6 @@
         <span class="stat"><span class="lvl" id="myLvl">1</span> <span class="plink" id="whoami" onclick="openProfile(me.username)"></span></span>
         <span class="stat">💰 Money: <span id="myMoney" style="color:#f5a623">0</span></span>
         <span class="stat">Inventory: <span id="totalVal">0</span></span>
-        <button class="gray" id="notifBtn" style="position:relative" onclick="toggleNotifs()">🔔<span id="notifBadge">0</span></button>
       </span>
       <button class="gold" id="verifyBtn" style="display:none" onclick="openVerify()">🔗 VERIFY ROBLOX</button>
       <span class="spacer"></span>
@@ -327,11 +331,13 @@
     </div>
     <div class="container" style="padding:10px 24px 0"><div class="msg" id="topMsg"></div></div>
 
-    <!-- NOTIFICATIONS DROPDOWN -->
-    <div id="notifPanel">
-      <h3 style="margin:0 0 10px"><span>🔔 Notifications</span> <span class="x" onclick="toggleNotifs()">&#10005;</span></h3>
-      <div id="notifList"></div>
+    <!-- DEPOSIT/WITHDRAW REQUEST POPUP (locked until the flow finishes) -->
+    <div id="dwrOverlay">
+      <div id="dwrBox"></div>
     </div>
+
+    <!-- STAFF ALERT TOAST (depositors/admin hear + see new requests anywhere) -->
+    <div id="staffToast"></div>
 
     <!-- SUPPORT WIDGET (floating) -->
     <button id="supBtn" onclick="toggleSupport()" title="Support">🎧</button>
@@ -470,6 +476,9 @@
     <div class="container pgwrap" id="depPage" style="display:none">
       <div class="panel" style="max-width:640px; margin:0 auto">
           <h3><span>💰 Depositor Panel</span> <span class="x" onclick="closeAllPopups()">&#10005; close</span></h3>
+          <h3 style="margin-top:4px"><span>📥📤 Deposit / Withdraw requests</span></h3>
+          <div id="depReqList" style="font-size:13px; margin-bottom:14px"></div>
+          <h3><span>Credit a player</span></h3>
           <div style="color:#888; font-size:13px; margin-bottom:12px">Credit a player after they deposited to you in-game. Every action is logged for the admin.</div>
           <input id="depUser" placeholder="Player username" style="width:100%; margin-bottom:10px">
           <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px">
@@ -694,29 +703,69 @@ async function resetConfirm() {
   } catch(e) { m.textContent = e.message; }
 }
 
-/* ---------- notifications (bell) ---------- */
-let notifCache = [], notifUnread = 0, notifOpen = false;
-function renderNotifBadge() {
-  const b = document.getElementById('notifBadge');
-  b.style.display = notifUnread > 0 ? '' : 'none';
-  b.textContent = notifUnread > 9 ? '9+' : notifUnread;
-}
-async function loadNotifs() {
+/* ---------- deposit/withdraw request popup (new flow) ---------- */
+let myReq = null;
+async function checkMyRequest() {
   if (!me) return;
-  try { const j = await api('/api/notifs'); notifCache = j.notifs; notifUnread = j.unread; renderNotifBadge(); } catch(e) {}
+  try { myReq = await api('/api/myrequest'); } catch(e) { myReq = null; }
+  renderMyReq();
 }
-function renderNotifs() {
-  document.getElementById('notifList').innerHTML = notifCache.length
-    ? notifCache.map(n => `<div class="nrow${n.read ? '' : ' unread'}">${esc(n.text)}<br><span class="nt">${new Date(n.t).toLocaleString()}</span></div>`).join('')
-    : '<div style="color:#777; font-size:13px">No notifications yet.</div>';
+function renderMyReq() {
+  const ov = document.getElementById('dwrOverlay'), box = document.getElementById('dwrBox');
+  if (!myReq) { ov.style.display = 'none'; return; }
+  const r = myReq;
+  const what = r.type === 'withdraw'
+    ? (r.items || []).map(i => esc(i.name)).join(', ') + ' — <b style="color:#f5a623">' + fmt(r.value) + '</b>'
+    : (r.note ? esc(r.note) : 'see your request note');
+  let html = '';
+  if (r.status === 'accepted') {
+    html = `<h2>${r.type === 'deposit' ? '📥 Deposit' : '📤 Withdraw'} accepted!</h2>
+      <div class="dwrline">Depositor <b style="color:#f5a623">${esc(r.acceptedBy)}</b> accepted your request.</div>
+      <div class="dwrline"><b>${r.type === 'deposit' ? 'You are depositing' : 'You are withdrawing'}:</b><br>${what}</div>
+      ${r.link ? `<div class="dwrline">Join them here to trade:</div><a class="dwrlink" href="${esc(r.link)}" target="_blank">${esc(r.link)}</a>` : ''}
+      <div class="dwrline" style="color:#888">⏳ Waiting for the depositor to confirm it's done — this popup will unlock then.</div>`;
+  } else if (r.status === 'done') {
+    html = `<h2 style="color:#2ecc71">✓ ${r.type === 'deposit' ? 'Deposit' : 'Withdraw'} completed!</h2>
+      <div class="dwrline"><b>${r.type === 'deposit' ? 'Deposited' : 'Withdrawn'}:</b><br>${what}</div>
+      <div class="dwrline">Confirmed by <b style="color:#f5a623">${esc(r.acceptedBy || 'staff')}</b>.</div>
+      <button class="gold" style="width:100%; margin-top:6px" onclick="ackMyReq()">DONE</button>`;
+  } else if (r.status === 'rejected') {
+    html = `<h2 style="color:#e74c3c">✕ ${r.type === 'deposit' ? 'Deposit' : 'Withdraw'} rejected</h2>
+      <div class="dwrline">${r.type === 'withdraw' ? 'Your items were returned to your inventory.' : 'Contact support if you think this is a mistake.'}</div>
+      <button class="gold" style="width:100%; margin-top:6px" onclick="ackMyReq()">DONE</button>`;
+  } else { ov.style.display = 'none'; return; }
+  box.innerHTML = html;
+  ov.style.display = 'block';
 }
-async function toggleNotifs() {
-  notifOpen = !notifOpen;
-  document.getElementById('notifPanel').style.display = notifOpen ? '' : 'none';
-  if (notifOpen) {
-    renderNotifs();
-    if (notifUnread > 0) { try { await api('/api/notifs/read', { method:'POST' }); } catch(e) {} notifUnread = 0; notifCache.forEach(n => n.read = true); renderNotifBadge(); }
-  }
+async function ackMyReq() {
+  if (!myReq) return;
+  try { await api('/api/requests/' + myReq.id + '/ack', { method:'POST' }); } catch(e) {}
+  myReq = null;
+  renderMyReq();
+}
+/* ---------- staff alert: hear new requests anywhere on the site ---------- */
+function playAlertSound() {
+  initAudio();
+  if (!audioCtx) return;
+  try {
+    const now = audioCtx.currentTime;
+    [[880, 0], [1320, 0.18]].forEach(([f, d]) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.18, now + d);
+      g.gain.exponentialRampToValueAtTime(0.001, now + d + 0.5);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(now + d); o.stop(now + d + 0.55);
+    });
+  } catch(e) {}
+}
+let toastTimer = null;
+function staffToast(text) {
+  const el = document.getElementById('staffToast');
+  el.textContent = text;
+  el.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.style.display = 'none'; }, 8000);
 }
 
 /* ---------- support tickets (floating 🎧 widget) ---------- */
@@ -788,7 +837,32 @@ async function openDepositor() {
     document.getElementById('depItem').innerHTML = items.slice().sort((a,b) => b.value - a.value)
       .map(i => `<option value="${i.id}">${esc(i.name)} — ${fmt(i.value)}</option>`).join('');
   } catch(e) {}
+  depReqsLoad();
   depLoadLog();
+}
+async function depReqsLoad() {
+  const el = document.getElementById('depReqList');
+  if (!el) return;
+  let list = [];
+  try { list = await api('/api/depositor/requests'); } catch(e) { el.innerHTML = ''; return; }
+  el.innerHTML = list.length ? list.map(r => `
+    <div style="border:1px solid ${r.status === 'accepted' ? 'rgba(245,166,35,.6)' : '#262933'}; border-radius:9px; padding:8px 10px; margin-bottom:7px">
+      <b>${r.type === 'deposit' ? '📥 Deposit' : '📤 Withdraw'}</b> from <b style="color:#f5a623">${esc(r.username)}</b>
+      <span style="float:right; color:${r.status === 'accepted' ? '#f5a623' : '#888'}">${r.status}${r.acceptedBy ? ' by ' + esc(r.acceptedBy) : ''}</span><br>
+      <span style="color:#aaa">${r.type === 'withdraw' ? (r.items || []).map(i => esc(i.name)).join(', ') + ' — ' + fmt(r.value) : esc(r.note || 'no note')}</span>
+      <div style="margin-top:6px; display:flex; gap:6px">
+        ${r.status === 'pending' ? `<button class="gold" style="border-radius:0" onclick="depReqAct(${r.id},'accept')">ACCEPT</button>` : ''}
+        ${r.status === 'accepted' ? `<button class="gold" style="border-radius:0" onclick="depReqAct(${r.id},'done')">DONE</button>` : ''}
+        <button style="border-radius:0; background:#3a1f1f; border:1px solid #e74c3c; color:#e74c3c" onclick="depReqAct(${r.id},'reject')">REJECT</button>
+      </div>
+    </div>`).join('') : '<div style="color:#777">No open requests.</div>';
+}
+async function depReqAct(id, action) {
+  const m = document.getElementById('depMsg');
+  try {
+    await api('/api/depositor/requests/' + id, { method:'POST', body: JSON.stringify({ action }) });
+    depReqsLoad();
+  } catch(e) { if (m) m.textContent = e.message; }
 }
 async function depLoadLog() {
   try {
@@ -847,7 +921,7 @@ async function loadMe() {
   const ADMIN_USERS = ['mikalasas'];
   if (ADMIN_USERS.includes(me.username.toLowerCase())) document.getElementById('adminLink').style.display = '';
   document.getElementById('depLink').style.display = me.depositor ? '' : 'none';
-  loadNotifs();
+  checkMyRequest();
   setInventory(me);
   updateVerifyUI();
   if (socket) socket.emit('auth', token);
@@ -1690,11 +1764,13 @@ function connectSocket() {
     if (chatMsgs.length > 50) chatMsgs.shift();
     renderChat();
   });
-  socket.on('notif', n => {
-    notifCache.unshift(n); if (notifCache.length > 30) notifCache.pop();
-    if (notifOpen) { renderNotifs(); }
-    else { notifUnread++; renderNotifBadge(); }
+  socket.on('dwreq', d => { // staff only (server sends it only to depositors/admins): audible alert anywhere on the site
+    playAlertSound();
+    staffToast((d.type === 'deposit' ? '📥 New DEPOSIT request from ' : '📤 New WITHDRAW request from ') + d.username +
+               (d.note ? ' — "' + d.note + '"' : '') + (d.value ? ' — value ' + fmt(d.value) : ''));
+    if (typeof depReqsLoad === 'function' && me && me.depositor) depReqsLoad();
   });
+  socket.on('dwstatus', r => { myReq = r; renderMyReq(); });
   socket.on('topwin', tw => {
     // same anti-spoiler delay as the live wins feed
     if (!loadedFeed) { topWin = tw; renderRecent(lastWinsList); }

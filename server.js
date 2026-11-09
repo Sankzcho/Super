@@ -374,6 +374,42 @@ app.get('/api/depositor/log', (req, res) => {
   res.json((db.depositorLog || []).filter(e => e.by === giver.username).slice(-30).reverse());
 });
 
+// ---------- depositor/mod request handling (same powers as admin, for deposit/withdraw requests only) ----------
+app.get('/api/depositor/requests', (req, res) => {
+  const giver = authUser(req);
+  if (!giver || !giver.depositor) return res.status(401).json({ error: 'Depositor access only' });
+  res.json([...(db.requests || [])].filter(r => r.status === 'pending' || r.status === 'accepted')
+    .sort((a, b) => b.t - a.t)
+    .map(r => ({ id: r.id, type: r.type, username: r.username, note: r.note || '', items: r.items || [],
+                 value: r.value || 0, status: r.status, acceptedBy: r.acceptedBy || '', t: r.t })));
+});
+app.post('/api/depositor/requests/:id', (req, res) => {
+  const giver = authUser(req);
+  if (!giver || !giver.depositor) return res.status(401).json({ error: 'Depositor access only' });
+  const r = (db.requests || []).find(x => x.id === Number(req.params.id));
+  if (!r) return res.status(404).json({ error: 'Request not found' });
+  const out = handleRequestAction(r, (req.body || {}).action, giver.username);
+  if (out.error) return res.status(400).json(out);
+  res.json(out);
+});
+
+// ---------- the player's own active request (drives the popup) ----------
+app.get('/api/myrequest', (req, res) => {
+  const user = authUser(req);
+  if (!user) return res.status(401).json({ error: 'Log in first' });
+  res.json(myRequestView(activeRequestOf(user)));
+});
+app.post('/api/requests/:id/ack', (req, res) => {
+  const user = authUser(req);
+  if (!user) return res.status(401).json({ error: 'Log in first' });
+  const r = (db.requests || []).find(x => x.id === Number(req.params.id) && x.userId === user.id);
+  if (!r) return res.status(404).json({ error: 'Request not found' });
+  if (r.status !== 'done' && r.status !== 'rejected') return res.status(400).json({ error: 'Wait until the depositor marks it done' });
+  r.acked = true;
+  saveDb();
+  res.json({ ok: true });
+});
+
 // ---------- notifications (bell icon) ----------
 app.get('/api/notifs', (req, res) => {
   const user = authUser(req);
@@ -520,6 +556,7 @@ app.post('/api/deposit', (req, res) => {
                      note, items: [], value: 0, status: 'pending', t: Date.now() });
   notify(user, '📥 Your deposit request was submitted — a depositor will handle it soon');
   notifyStaff('📥 New DEPOSIT request from ' + user.username + (note ? ' — "' + note + '"' : ''));
+  emitStaff('dwreq', { type: 'deposit', username: user.username, note });
   saveDb();
   res.json({ ok: true });
 });
@@ -541,6 +578,7 @@ app.post('/api/withdraw', (req, res) => {
   db.requests.push(wReq);
   notify(user, '📤 Your withdraw request (' + wReq.value.toLocaleString('en-US') + ') was submitted — a depositor will handle it soon');
   notifyStaff('📤 New WITHDRAW request from ' + user.username + ' — value ' + wReq.value.toLocaleString('en-US'));
+  emitStaff('dwreq', { type: 'withdraw', username: user.username, value: wReq.value });
   if (wReq.value >= alertThreshold()) alertLog('⚠️ LARGE WITHDRAW REQUEST: ' + user.username + ' wants to withdraw ' + wReq.value.toLocaleString('en-US'));
   recordHistory(user);
   saveDb();
@@ -690,7 +728,7 @@ app.get('/api/admin/requests', (req, res) => {
   if (!isAdmin(req)) return res.status(401).json({ error: 'Admin only' });
   res.json([...(db.requests || [])].sort((a, b) => b.t - a.t).map(r => ({
     id: r.id, type: r.type, username: r.username, note: r.note,
-    items: r.items || [], value: r.value || 0, status: r.status, t: r.t
+    items: r.items || [], value: r.value || 0, status: r.status, acceptedBy: r.acceptedBy || '', t: r.t
   })));
 });
 
@@ -699,20 +737,9 @@ app.post('/api/admin/requests/:id', (req, res) => {
   if (!isAdmin(req)) return res.status(401).json({ error: 'Admin only' });
   const r = (db.requests || []).find(x => x.id === Number(req.params.id));
   if (!r) return res.status(404).json({ error: 'Request not found' });
-  if (r.status !== 'pending') return res.status(400).json({ error: 'Already handled' });
-  const action = (req.body || {}).action;
-  if (action !== 'done' && action !== 'reject') return res.status(400).json({ error: 'action must be done or reject' });
-  r.status = action === 'done' ? 'done' : 'rejected';
-  r.handledAt = Date.now();
-  if (action === 'reject' && r.type === 'withdraw' && Array.isArray(r.instances)) {
-    const u = db.users.find(x => x.id === r.userId);
-    if (u) { u.inventory.push(...r.instances); recordHistory(u); pushInventory(u); }
-  }
-  notify(db.users.find(x => x.id === r.userId),
-    (r.type === 'deposit' ? '📥 Your deposit request was ' : '📤 Your withdraw request was ') +
-    (r.status === 'done' ? 'completed ✓' : 'rejected' + (r.type === 'withdraw' ? ' — your items were returned' : '')));
-  saveDb();
-  res.json({ ok: true, status: r.status });
+  const out = handleRequestAction(r, (req.body || {}).action, 'admin');
+  if (out.error) return res.status(400).json(out);
+  res.json(out);
 });
 
 app.get('/api/admin/payouts', (req, res) => {
@@ -818,6 +845,53 @@ function notify(user, text) {
 }
 function notifyStaff(text) { // every depositor + admin account gets it
   db.users.forEach(u => { if (u.depositor || STAFF_ADMINS.includes(u.username.toLowerCase())) notify(u, text); });
+}
+function emitStaff(event, data) { // live socket event to every online depositor/admin (plays the alert sound site-wide)
+  db.users.forEach(u => {
+    if (!(u.depositor || STAFF_ADMINS.includes(u.username.toLowerCase()))) return;
+    const set = userSockets[u.id];
+    if (set) set.forEach(s => s.emit(event, data));
+  });
+}
+function emitUser(user, event, data) {
+  const set = userSockets[user.id];
+  if (set) set.forEach(s => s.emit(event, data));
+}
+// what the player's popup needs to know about their active deposit/withdraw request
+function myRequestView(r) {
+  if (!r) return null;
+  return { id: r.id, type: r.type, status: r.status, note: r.note || '', items: r.items || [], value: r.value || 0,
+           acceptedBy: r.acceptedBy || '',
+           link: r.type === 'deposit' ? ((db.settings || {}).depositLink || '') : ((db.settings || {}).withdrawLink || '') };
+}
+function activeRequestOf(user) {
+  return [...(db.requests || [])].reverse().find(r => r.userId === user.id && r.popup && !r.acked) || null;
+}
+// shared accept/done/reject logic used by both the admin panel and the depositor panel
+function handleRequestAction(r, action, staffName) {
+  if (action === 'accept') {
+    if (r.status !== 'pending') return { error: 'Only pending requests can be accepted' };
+    r.status = 'accepted'; r.acceptedBy = staffName; r.acceptedAt = Date.now(); r.popup = true; r.acked = false;
+  } else if (action === 'done') {
+    if (r.status !== 'pending' && r.status !== 'accepted') return { error: 'Already handled' };
+    r.status = 'done'; r.handledAt = Date.now(); r.popup = true; r.acked = false;
+    if (!r.acceptedBy) r.acceptedBy = staffName;
+  } else if (action === 'reject') {
+    if (r.status !== 'pending' && r.status !== 'accepted') return { error: 'Already handled' };
+    r.status = 'rejected'; r.handledAt = Date.now(); r.popup = true; r.acked = false;
+    if (r.type === 'withdraw' && Array.isArray(r.instances)) {
+      const u = db.users.find(x => x.id === r.userId);
+      if (u) { u.inventory.push(...r.instances); recordHistory(u); pushInventory(u); }
+    }
+  } else return { error: 'Unknown action' };
+  const owner = db.users.find(x => x.id === r.userId);
+  if (owner) {
+    notify(owner, (r.type === 'deposit' ? '📥 Deposit request ' : '📤 Withdraw request ') +
+      (r.status === 'accepted' ? 'ACCEPTED by ' + staffName + ' — check the popup for the link!' : r.status === 'done' ? 'completed ✓' : 'rejected' + (r.type === 'withdraw' ? ' — items returned' : '')));
+    emitUser(owner, 'dwstatus', myRequestView(activeRequestOf(owner)));
+  }
+  saveDb();
+  return { ok: true, status: r.status };
 }
 function alertThreshold() { return (db.settings && db.settings.alertThreshold) || 10000000; }
 function alertLog(text) { // big-money alert log shown in the admin panel

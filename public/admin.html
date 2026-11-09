@@ -283,8 +283,9 @@ async function loadRequests() {
     <td>${q.type === 'withdraw' ? (q.items.map(i => esc(i.name)).join(', ') + ' — <b style="color:#f5a623">' + fmt(q.value) + '</b>') : '—'}</td>
     <td>${esc(q.note || '')}</td>
     <td>${new Date(q.t).toLocaleString()}</td>
-    <td>${q.status === 'pending' ? '<b style="color:#f5a623">PENDING</b>' : (q.status === 'done' ? '<span style="color:#27ae60">done</span>' : '<span style="color:#c0392b">rejected</span>')}</td>
-    <td>${q.status === 'pending' ? `<button class="green" onclick="handleRequest(${q.id},'done')">Done</button> <button class="red" onclick="handleRequest(${q.id},'reject')">Reject</button>` : ''}</td>
+    <td>${q.status === 'pending' ? '<b style="color:#f5a623">PENDING</b>' : q.status === 'accepted' ? '<b style="color:#4da3ff">ACCEPTED' + (q.acceptedBy ? ' by ' + esc(q.acceptedBy) : '') + '</b>' : (q.status === 'done' ? '<span style="color:#27ae60">done</span>' : '<span style="color:#c0392b">rejected</span>')}</td>
+    <td>${q.status === 'pending' ? `<button class="green" onclick="handleRequest(${q.id},'accept')">Accept</button> <button class="red" onclick="handleRequest(${q.id},'reject')">Reject</button>`
+        : q.status === 'accepted' ? `<button class="green" onclick="handleRequest(${q.id},'done')">Done</button> <button class="red" onclick="handleRequest(${q.id},'reject')">Reject</button>` : ''}</td>
   </tr>`).join('');
   document.getElementById('reqTable').innerHTML =
     '<tr><th>Type</th><th>User</th><th>Items / value</th><th>Note</th><th>When</th><th>Status</th><th></th></tr>' +

@@ -163,7 +163,8 @@ app.get('/api/me', (req, res) => {
     affCode: user.affCode || '',
     pendingPayout: (db.payouts || []).filter(p => p.userId === user.id && p.status === 'pending').reduce((s, p) => s + p.amount, 0),
     referredBy: user.referredBy ? ((db.users.find(x => x.id === user.referredBy) || {}).username || null) : null,
-    roblox: user.roblox || null
+    roblox: user.roblox || null,
+    depositor: !!user.depositor
   });
 });
 
@@ -223,6 +224,8 @@ app.post('/api/roblox/link', async (req, res) => {
     const j = await r.json();
     const found = j.data && j.data[0];
     if (!found) return res.status(404).json({ error: 'No Roblox user with that name' });
+    if (db.users.some(u => u.id !== user.id && u.roblox && String(u.roblox.id) === String(found.id)))
+      return res.status(400).json({ error: 'That Roblox account is already linked to another player on this site' });
     user.robloxPending = { id: found.id, name: found.name, code: robloxCode() };
     saveDb();
     res.json({ ok: true, robloxName: found.name, robloxId: found.id, code: user.robloxPending.code });
@@ -239,6 +242,8 @@ app.post('/api/roblox/verify', async (req, res) => {
     const desc = String(j.description || '').toLowerCase().replace(/\s+/g, ' ');
     if (!desc.includes(p.code.toLowerCase()))
       return res.status(400).json({ error: 'Code not found in your Roblox About section yet. Paste it there, press Save on Roblox, then try again.' });
+    if (db.users.some(u => u.id !== user.id && u.roblox && String(u.roblox.id) === String(p.id)))
+      return res.status(400).json({ error: 'That Roblox account is already linked to another player on this site' });
     let avatar = '';
     try {
       const t = await fetch('https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=' + p.id + '&size=48x48&format=Png&isCircular=true');
@@ -258,6 +263,89 @@ app.post('/api/roblox/unlink', (req, res) => {
   delete user.robloxPending;
   saveDb();
   res.json({ ok: true });
+});
+
+// ---------- password reset by proving ownership of the linked Roblox account ----------
+app.post('/api/reset/start', (req, res) => {
+  const user = userByName(String((req.body || {}).username || '').trim());
+  if (!user) return res.status(404).json({ error: 'No player with that username' });
+  if (!user.roblox) return res.status(400).json({ error: 'That account has no Roblox linked — only the admin can reset it' });
+  // reuse the same code for 60s so double clicks don't generate new ones
+  if (!user.resetPending || Date.now() - user.resetPending.t > 60000)
+    user.resetPending = { code: robloxCode(), t: Date.now() };
+  saveDb();
+  res.json({ ok: true, robloxName: user.roblox.name, code: user.resetPending.code });
+});
+app.post('/api/reset/confirm', async (req, res) => {
+  const { username, newPassword } = req.body || {};
+  const user = userByName(String(username || '').trim());
+  if (!user || !user.resetPending || !user.roblox) return res.status(400).json({ error: 'Start the reset first' });
+  if (Date.now() - user.resetPending.t > 15 * 60 * 1000) { delete user.resetPending; saveDb(); return res.status(400).json({ error: 'Reset code expired — start again' }); }
+  if (!newPassword || String(newPassword).length < 4) return res.status(400).json({ error: 'New password too short (minimum 4 characters)' });
+  try {
+    const r = await fetch('https://users.roblox.com/v1/users/' + user.roblox.id);
+    const j = await r.json();
+    const desc = String(j.description || '').toLowerCase().replace(/\s+/g, ' ');
+    if (!desc.includes(user.resetPending.code.toLowerCase()))
+      return res.status(400).json({ error: 'Code not found in your Roblox About section yet. Paste it there, press Save on Roblox, then try again.' });
+    user.salt = crypto.randomBytes(16).toString('hex');
+    user.passHash = hashPassword(String(newPassword), user.salt);
+    delete user.resetPending;
+    for (const tok of Object.keys(db.tokens)) if (db.tokens[tok] === user.id) delete db.tokens[tok]; // log out old sessions everywhere
+    saveDb();
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Could not reach Roblox — try again in a moment' }); }
+});
+
+// ---------- depositors: trusted staff picked by the admin who credit players after in-game deposits ----------
+app.get('/api/admin/depositors', (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin only' });
+  res.json({
+    depositors: db.users.filter(u => u.depositor).map(u => ({ username: u.username, level: levelFromXp(u.xp) })),
+    log: (db.depositorLog || []).slice(-50).reverse()
+  });
+});
+app.post('/api/admin/depositors', (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin only' });
+  const { username, action } = req.body || {};
+  const user = userByName(username || '');
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (action === 'remove') delete user.depositor;
+  else user.depositor = true;
+  saveDb();
+  res.json({ ok: true });
+});
+app.post('/api/depositor/give', (req, res) => {
+  const giver = authUser(req);
+  if (!giver || !giver.depositor) return res.status(401).json({ error: 'Depositor access only' });
+  const { username, money, itemId } = req.body || {};
+  const user = userByName(username || '');
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (user.id === giver.id) return res.status(400).json({ error: "You can't credit yourself" });
+  if (!db.depositorLog) db.depositorLog = [];
+  let entry;
+  if (itemId !== undefined && itemId !== null && itemId !== '') {
+    const item = itemDef(Number(itemId));
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+    user.inventory.push({ iid: db.nextInstanceId++, itemId: item.id });
+    entry = { by: giver.username, to: user.username, item: item.name, value: item.value, t: Date.now() };
+  } else {
+    const n = Math.round(Number(money));
+    if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: 'Bad amount' });
+    user.money = (user.money || 0) + n;
+    entry = { by: giver.username, to: user.username, money: n, t: Date.now() };
+  }
+  db.depositorLog.push(entry);
+  if (db.depositorLog.length > 300) db.depositorLog = db.depositorLog.slice(-300);
+  recordHistory(user);
+  saveDb();
+  pushInventory(user);
+  res.json({ ok: true });
+});
+app.get('/api/depositor/log', (req, res) => {
+  const giver = authUser(req);
+  if (!giver || !giver.depositor) return res.status(401).json({ error: 'Depositor access only' });
+  res.json((db.depositorLog || []).filter(e => e.by === giver.username).slice(-30).reverse());
 });
 
 // marketplace: sell an item from your inventory for its full value

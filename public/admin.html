@@ -106,6 +106,19 @@
   </div>
 
   <div class="panel">
+    <h3>Depositors (trusted staff)</h3>
+    <div style="color:#888; font-size:13px; margin-bottom:8px">Depositors get a "Depositor panel" on the site where they can credit money/items to players who deposited to them in-game. Every credit they make is logged below.</div>
+    <div class="row" style="margin-bottom:8px">
+      <input id="depoUser" placeholder="Username">
+      <button class="green" onclick="depoAdd()">Add depositor</button>
+    </div>
+    <div id="depoList" style="margin-bottom:10px"></div>
+    <div class="msg" id="depoMsg"></div>
+    <h3 style="margin-top:10px">Depositor action log (latest 50)</h3>
+    <div id="depoLog" style="font-size:13px; color:#aaa"></div>
+  </div>
+
+  <div class="panel">
     <h3>Users</h3>
     <table id="usersTable"><tr><th>Username</th><th>Items</th><th>Total value</th><th>Money</th><th>W/L</th></tr></table>
   </div>
@@ -127,7 +140,7 @@ async function checkPass() {
 function showMain() {
   document.getElementById('adminLogin').style.display = 'none';
   document.getElementById('adminMain').style.display = '';
-  loadItems(); loadUsers(); loadPayouts(); loadLinks(); loadRequests();
+  loadItems(); loadUsers(); loadPayouts(); loadLinks(); loadRequests(); loadDepositors();
 }
 
 async function loadLinks() {
@@ -135,6 +148,31 @@ async function loadLinks() {
   document.getElementById('depLink').value = j.deposit || '';
   document.getElementById('witLink').value = j.withdraw || '';
 }
+
+async function loadDepositors() {
+  const r = await fetch('/api/admin/depositors', { headers:{'x-admin-password':pass} });
+  if (!r.ok) return;
+  const j = await r.json();
+  document.getElementById('depoList').innerHTML = j.depositors.length
+    ? j.depositors.map(d => `<div style="margin-bottom:4px"><b>${esc(d.username)}</b> (level ${d.level})
+        <button onclick="depoRemove('${esc(d.username)}')" style="margin-left:8px">Remove</button></div>`).join('')
+    : '<div style="color:#777">No depositors yet.</div>';
+  document.getElementById('depoLog').innerHTML = j.log.length
+    ? j.log.map(e => `<div style="margin-bottom:3px"><b style="color:#ddd">${esc(e.by)}</b> → <b style="color:#ddd">${esc(e.to)}</b>:
+        ${e.money ? '<span style="color:#f5a623">' + fmt(e.money) + ' money</span>' : esc(e.item || '') + ' <span style="color:#f5a623">(' + fmt(e.value || 0) + ')</span>'}
+        <span style="color:#666">· ${new Date(e.t).toLocaleString()}</span></div>`).join('')
+    : '<div style="color:#777">No actions yet.</div>';
+}
+async function depoSet(username, action) {
+  const r = await fetch('/api/admin/depositors', { method:'POST',
+    headers:{'Content-Type':'application/json','x-admin-password':pass},
+    body: JSON.stringify({ username, action }) });
+  const j = await r.json();
+  document.getElementById('depoMsg').textContent = r.ok ? (action === 'remove' ? 'Removed.' : 'Added — they now see the Depositor panel on the site.') : (j.error || 'Failed');
+  if (r.ok) loadDepositors();
+}
+function depoAdd() { depoSet(document.getElementById('depoUser').value.trim(), 'add'); }
+function depoRemove(u) { depoSet(u, 'remove'); }
 
 async function saveLinks() {
   const r = await fetch('/api/admin/links', { method:'POST',

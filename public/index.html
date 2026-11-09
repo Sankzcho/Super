@@ -286,6 +286,7 @@
       <button class="gray" onclick="openDw('withdraw')">📤 Withdraw</button>
       <button class="gray" onclick="openMarket()">🛒 Market</button>
       <span id="profBtnWrap" style="display:none"><button class="gray" onclick="openProfile(me.username)">Profile</button></span>
+      <a href="#" id="depLink" style="display:none" onclick="openDepositor(); return false">Depositor panel</a>
       <a href="/admin.html" id="adminLink" style="display:none">Admin panel</a>
       <button class="gray" id="logoutBtn" style="display:none" onclick="logout()">Logout</button>
     </header>
@@ -395,6 +396,45 @@
             <button type="submit" class="gold" id="authSubmit" style="width:100%">REGISTER</button>
           </form>
           <div class="msg" id="authMsg" style="margin-top:8px"></div>
+          <div id="forgotRow" style="display:none; margin-top:10px; font-size:13px">
+            <a href="#" onclick="startResetUI(); return false" style="color:#f5a623">Forgot password?</a>
+          </div>
+          <div id="resetFlow" style="display:none; margin-top:12px; border-top:1px solid #2a2d33; padding-top:12px">
+            <div style="font-size:13px; color:#aaa; margin-bottom:8px">Reset your password by proving you own the Roblox account linked to it.</div>
+            <div id="resetStep1">
+              <input id="resetUser" placeholder="Your site username" style="width:100%; margin-bottom:8px">
+              <button class="gold" style="width:100%" onclick="resetStart()">START RESET</button>
+            </div>
+            <div id="resetStep2" style="display:none">
+              <div style="font-size:13px; margin-bottom:8px">Linked Roblox account: <b id="resetRbx" style="color:#f5a623"></b></div>
+              <div style="font-size:13px; color:#aaa">1. Copy this code into your Roblox profile <b>About</b> section and press Save on Roblox:</div>
+              <div id="resetCode" style="background:#101114; border:1px solid #2a2d33; border-radius:8px; padding:8px; margin:8px 0; font-family:monospace; color:#f5a623; cursor:pointer" onclick="navigator.clipboard && navigator.clipboard.writeText(this.textContent)" title="Click to copy"></div>
+              <div style="font-size:13px; color:#aaa; margin-bottom:8px">2. Pick a new password, then verify:</div>
+              <input id="resetPass" type="password" placeholder="New password" style="width:100%; margin-bottom:8px">
+              <button class="gold" style="width:100%" onclick="resetConfirm()">VERIFY &amp; SET NEW PASSWORD</button>
+            </div>
+            <div class="msg" id="resetMsg" style="margin-top:8px"></div>
+          </div>
+      </div>
+    </div>
+
+    <!-- DEPOSITOR PANEL PAGE (visible only to staff picked by the admin) -->
+    <div class="container pgwrap" id="depPage" style="display:none">
+      <div class="panel" style="max-width:640px; margin:0 auto">
+          <h3><span>💰 Depositor Panel</span> <span class="x" onclick="closeAllPopups()">&#10005; close</span></h3>
+          <div style="color:#888; font-size:13px; margin-bottom:12px">Credit a player after they deposited to you in-game. Every action is logged for the admin.</div>
+          <input id="depUser" placeholder="Player username" style="width:100%; margin-bottom:10px">
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px">
+            <input id="depMoney" type="number" min="1" placeholder="Money amount" style="flex:1; min-width:140px">
+            <button class="gold" onclick="depGiveMoney()">GIVE MONEY</button>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px">
+            <select id="depItem" style="flex:1; min-width:140px"></select>
+            <button class="gold" onclick="depGiveItem()">GIVE ITEM</button>
+          </div>
+          <div class="msg" id="depMsg"></div>
+          <h3 style="margin-top:16px"><span>Your recent credits</span></h3>
+          <div id="depLog" style="font-size:13px; color:#aaa"></div>
       </div>
     </div>
 
@@ -555,6 +595,11 @@ function openAuth(mode) {
   document.getElementById('authTitle').textContent = mode === 'register' ? 'Register' : 'Login';
   document.getElementById('authSubmit').textContent = mode === 'register' ? 'REGISTER' : 'LOGIN';
   document.getElementById('authMsg').textContent = '';
+  document.getElementById('forgotRow').style.display = mode === 'login' ? '' : 'none';
+  document.getElementById('resetFlow').style.display = 'none';
+  document.getElementById('resetStep1').style.display = '';
+  document.getElementById('resetStep2').style.display = 'none';
+  document.getElementById('resetMsg').textContent = '';
   showPage('auth');
   document.getElementById('username').focus();
 }
@@ -572,6 +617,75 @@ async function doAuth() {
 }
 function logout(){ localStorage.removeItem('token'); location.reload(); }
 
+/* ---------- password reset (prove Roblox ownership) ---------- */
+function startResetUI() {
+  document.getElementById('resetFlow').style.display = '';
+  document.getElementById('resetUser').value = document.getElementById('username').value.trim();
+  document.getElementById('resetUser').focus();
+}
+async function resetStart() {
+  const m = document.getElementById('resetMsg'); m.textContent = '';
+  try {
+    const j = await api('/api/reset/start', { method:'POST', body: JSON.stringify({ username: document.getElementById('resetUser').value.trim() }) });
+    document.getElementById('resetRbx').textContent = j.robloxName;
+    document.getElementById('resetCode').textContent = j.code;
+    document.getElementById('resetStep1').style.display = 'none';
+    document.getElementById('resetStep2').style.display = '';
+  } catch(e) { m.textContent = e.message; }
+}
+async function resetConfirm() {
+  const m = document.getElementById('resetMsg'); m.textContent = '';
+  try {
+    await api('/api/reset/confirm', { method:'POST', body: JSON.stringify({
+      username: document.getElementById('resetUser').value.trim(),
+      newPassword: document.getElementById('resetPass').value }) });
+    m.textContent = 'Password changed! Log in with your new password.';
+    document.getElementById('resetFlow').style.display = 'none';
+    document.getElementById('password').value = '';
+  } catch(e) { m.textContent = e.message; }
+}
+
+/* ---------- depositor panel (staff picked by the admin) ---------- */
+async function openDepositor() {
+  if (!me || !me.depositor) return;
+  showPage('depositor');
+  try {
+    const items = await api('/api/items');
+    document.getElementById('depItem').innerHTML = items.slice().sort((a,b) => b.value - a.value)
+      .map(i => `<option value="${i.id}">${esc(i.name)} — ${fmt(i.value)}</option>`).join('');
+  } catch(e) {}
+  depLoadLog();
+}
+async function depLoadLog() {
+  try {
+    const log = await api('/api/depositor/log');
+    document.getElementById('depLog').innerHTML = log.length ? log.map(e =>
+      `<div style="margin-bottom:4px">→ <b style="color:#ddd">${esc(e.to)}</b> got ${e.money
+        ? '<span style="color:#f5a623">' + fmt(e.money) + '</span>'
+        : esc(e.item || '') + ' <span style="color:#f5a623">(' + fmt(e.value || 0) + ')</span>'}
+        <span style="color:#666">· ${new Date(e.t).toLocaleString()}</span></div>`).join('')
+      : '<div style="color:#777">Nothing yet.</div>';
+  } catch(e) {}
+}
+async function depGiveMoney() {
+  const m = document.getElementById('depMsg');
+  try {
+    await api('/api/depositor/give', { method:'POST', body: JSON.stringify({
+      username: document.getElementById('depUser').value.trim(),
+      money: Number(document.getElementById('depMoney').value) }) });
+    m.textContent = 'Money credited ✓'; document.getElementById('depMoney').value = ''; depLoadLog();
+  } catch(e) { m.textContent = e.message; }
+}
+async function depGiveItem() {
+  const m = document.getElementById('depMsg');
+  try {
+    await api('/api/depositor/give', { method:'POST', body: JSON.stringify({
+      username: document.getElementById('depUser').value.trim(),
+      itemId: document.getElementById('depItem').value }) });
+    m.textContent = 'Item credited ✓'; depLoadLog();
+  } catch(e) { m.textContent = e.message; }
+}
+
 async function loadMe() {
   try { me = await api('/api/me'); }
   catch(e) { token=null; localStorage.removeItem('token'); loadedMe = true; maybeHideLoad(); return; }
@@ -583,6 +697,7 @@ async function loadMe() {
   // admin panel link is only visible to whitelisted accounts
   const ADMIN_USERS = ['mikalasas'];
   if (ADMIN_USERS.includes(me.username.toLowerCase())) document.getElementById('adminLink').style.display = '';
+  document.getElementById('depLink').style.display = me.depositor ? '' : 'none';
   setInventory(me);
   updateVerifyUI();
   if (socket) socket.emit('auth', token);
@@ -1099,7 +1214,7 @@ async function sendTip() {
 
 /* ---------- leaderboard page ---------- */
 let lbData = [], lbMode = 'wagered';
-const PAGE_IDS = { main:'main', lb:'lbPage', market:'marketPage', dw:'dwPage', auth:'authPage' };
+const PAGE_IDS = { main:'main', lb:'lbPage', market:'marketPage', dw:'dwPage', auth:'authPage', depositor:'depPage' };
 let basePage = 'main'; // last "home" page (upgrader or leaderboard) to return to when closing a sub-page
 function showPage(which) {
   Object.values(PAGE_IDS).forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });

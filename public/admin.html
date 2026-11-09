@@ -159,7 +159,9 @@ async function loadDepositors() {
     : '<div style="color:#777">No depositors yet.</div>';
   document.getElementById('depoLog').innerHTML = j.log.length
     ? j.log.map(e => `<div style="margin-bottom:3px"><b style="color:#ddd">${esc(e.by)}</b> → <b style="color:#ddd">${esc(e.to)}</b>:
-        ${e.money ? '<span style="color:#f5a623">' + fmt(e.money) + ' money</span>' : esc(e.item || '') + ' <span style="color:#f5a623">(' + fmt(e.value || 0) + ')</span>'}
+        ${e.took ? '<span style="color:#e74c3c">withdrew ' + fmt(e.took) + ' money</span>'
+          : e.money ? '<span style="color:#f5a623">gave ' + fmt(e.money) + ' money</span>'
+          : 'gave ' + esc(e.item || '') + ' <span style="color:#f5a623">(' + fmt(e.value || 0) + ')</span>'}
         <span style="color:#666">· ${new Date(e.t).toLocaleString()}</span></div>`).join('')
     : '<div style="color:#777">No actions yet.</div>';
 }

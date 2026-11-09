@@ -426,11 +426,12 @@
           <input id="depUser" placeholder="Player username" style="width:100%; margin-bottom:10px">
           <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px">
             <input id="depMoney" type="number" min="1" placeholder="Money amount" style="flex:1; min-width:140px">
-            <button class="gold" onclick="depGiveMoney()">GIVE MONEY</button>
+            <button class="gold" style="border-radius:0" onclick="depGiveMoney()">GIVE MONEY</button>
+            <button style="border-radius:0; background:#3a1f1f; border:1px solid #e74c3c; color:#e74c3c" onclick="depTakeMoney()">WITHDRAW MONEY</button>
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px">
             <select id="depItem" style="flex:1; min-width:140px"></select>
-            <button class="gold" onclick="depGiveItem()">GIVE ITEM</button>
+            <button class="gold" style="border-radius:0" onclick="depGiveItem()">GIVE ITEM</button>
           </div>
           <div class="msg" id="depMsg"></div>
           <h3 style="margin-top:16px"><span>Your recent credits</span></h3>
@@ -660,20 +661,35 @@ async function depLoadLog() {
   try {
     const log = await api('/api/depositor/log');
     document.getElementById('depLog').innerHTML = log.length ? log.map(e =>
-      `<div style="margin-bottom:4px">→ <b style="color:#ddd">${esc(e.to)}</b> got ${e.money
-        ? '<span style="color:#f5a623">' + fmt(e.money) + '</span>'
-        : esc(e.item || '') + ' <span style="color:#f5a623">(' + fmt(e.value || 0) + ')</span>'}
+      `<div style="margin-bottom:4px">→ <b style="color:#ddd">${esc(e.to)}</b> ${e.took
+        ? '<span style="color:#e74c3c">withdrew ' + fmt(e.took) + '</span>'
+        : 'got ' + (e.money
+          ? '<span style="color:#f5a623">' + fmt(e.money) + '</span>'
+          : esc(e.item || '') + ' <span style="color:#f5a623">(' + fmt(e.value || 0) + ')</span>')}
         <span style="color:#666">· ${new Date(e.t).toLocaleString()}</span></div>`).join('')
       : '<div style="color:#777">Nothing yet.</div>';
   } catch(e) {}
 }
 async function depGiveMoney() {
   const m = document.getElementById('depMsg');
+  const amt = Number(document.getElementById('depMoney').value);
+  if (!(amt > 0)) { m.textContent = 'Amount must be a positive number'; return; }
   try {
     await api('/api/depositor/give', { method:'POST', body: JSON.stringify({
       username: document.getElementById('depUser').value.trim(),
-      money: Number(document.getElementById('depMoney').value) }) });
+      money: amt }) });
     m.textContent = 'Money credited ✓'; document.getElementById('depMoney').value = ''; depLoadLog();
+  } catch(e) { m.textContent = e.message; }
+}
+async function depTakeMoney() {
+  const m = document.getElementById('depMsg');
+  const amt = Number(document.getElementById('depMoney').value);
+  if (!(amt > 0)) { m.textContent = 'Amount must be a positive number'; return; }
+  try {
+    await api('/api/depositor/take', { method:'POST', body: JSON.stringify({
+      username: document.getElementById('depUser').value.trim(),
+      money: amt }) });
+    m.textContent = 'Money withdrawn ✓'; document.getElementById('depMoney').value = ''; depLoadLog();
   } catch(e) { m.textContent = e.message; }
 }
 async function depGiveItem() {
@@ -1045,7 +1061,7 @@ function fxLose() {
 /* Natural upgrader-style spin: starts from standstill, accelerates, then a long
    dramatic slow-down that crawls into the landing spot (like real upgrader sites). */
 const SPIN_MS = 5000, SPIN_LAPS_DEG = 1440; // 4 full laps before landing
-const HOUSE_EDGE = 0.08; // must match the server: shown % = real rolled % = ratio × 0.92
+const HOUSE_EDGE = 0.03; // must match the server: shown % = simple ratio, real rolled % = ratio × 0.97
 function spinEase(t) {
   const u = t * t * (3 - 2 * t);     // smooth acceleration from 0 speed
   return 1 - Math.pow(1 - u, 2);     // long gentle deceleration into the result

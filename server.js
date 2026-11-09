@@ -342,6 +342,26 @@ app.post('/api/depositor/give', (req, res) => {
   pushInventory(user);
   res.json({ ok: true });
 });
+// withdraw money FROM a player (when they cash out through a depositor) — can never go negative
+app.post('/api/depositor/take', (req, res) => {
+  const giver = authUser(req);
+  if (!giver || !giver.depositor) return res.status(401).json({ error: 'Depositor access only' });
+  const { username, money } = req.body || {};
+  const user = userByName(username || '');
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (user.id === giver.id) return res.status(400).json({ error: "You can't withdraw from yourself" });
+  const n = Math.round(Number(money));
+  if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: 'Amount must be a positive number' });
+  if (n > (user.money || 0)) return res.status(400).json({ error: 'They only have ' + (user.money || 0).toLocaleString('en-US') + ' — balance can never go negative' });
+  user.money = (user.money || 0) - n;
+  if (!db.depositorLog) db.depositorLog = [];
+  db.depositorLog.push({ by: giver.username, to: user.username, took: n, t: Date.now() });
+  if (db.depositorLog.length > 300) db.depositorLog = db.depositorLog.slice(-300);
+  recordHistory(user);
+  saveDb();
+  pushInventory(user);
+  res.json({ ok: true });
+});
 app.get('/api/depositor/log', (req, res) => {
   const giver = authUser(req);
   if (!giver || !giver.depositor) return res.status(401).json({ error: 'Depositor access only' });
@@ -716,7 +736,7 @@ io.on('connection', (socket) => {
     user.money = (user.money || 0) - money;
 
     // provably fair roll (with house edge: real chance = value ratio × (1 - HOUSE_EDGE))
-    const HOUSE_EDGE = 0.08;
+    const HOUSE_EDGE = 0.03;
     const chance = (input / target.value) * (1 - HOUSE_EDGE);
     const seed = crypto.randomBytes(16).toString('hex');
     const hash = sha256(seed);
